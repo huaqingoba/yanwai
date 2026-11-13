@@ -5,10 +5,17 @@ import dev.jev.wechatmood.core.Mood
 
 /** Fixed card schema; historical headers/decorations stay in cached detail, never in the overlay. */
 object AnalysisCardContent {
-    data class Line(val text: String, val emotion: Boolean = false, val label: String? = null)
+    data class Line(val text: String, val emotion: Boolean = false, val label: String? = null, val placeholder: Boolean = false)
 
     @Suppress("UNUSED_PARAMETER") // Keep stored preferences compatible; this card now has three fixed sections.
-    fun lines(mood: Mood, display: CardDisplaySettings): List<Line> {
+    fun lines(mood: Mood, display: CardDisplaySettings, loading: Boolean = false): List<Line> {
+        if (loading) return listOf(
+            Line("", emotion = true),
+            Line("智能分析", label = "智能分析"),
+            Line("分析中…", placeholder = true),
+            Line(" ", placeholder = true),
+            Line(" ", placeholder = true),
+        )
         val original = mood.detail.lines().map(String::trim).filter(String::isNotEmpty)
         val split = original.indexOfFirst { it.startsWith("语音转写：") }.let { if (it < 0) original.size else it }
         val analysis = original.take(split)

@@ -9,9 +9,13 @@ import kotlin.math.ceil
 import kotlin.math.max
 
 /** One atomic inline chip, so Android can wrap between emotions, never inside a ring. */
-class EmotionRingSpan(private val emotion: EmotionIndicator, private val density: Float,
+class EmotionRingSpan(private var emotion: EmotionIndicator, private val density: Float,
     availableWidth: Int = Int.MAX_VALUE) : ReplacementSpan() {
     private val maxWidth = availableWidth.coerceAtLeast(1).toFloat()
+    fun update(value: EmotionIndicator) {
+        require(value.label == emotion.label) // Label/slot width stays fixed on probability-only changes.
+        emotion = value
+    }
     private fun labelPaint(paint: Paint) = Paint(paint).apply {
         textSize *= 0.8f; color = emotion.color
         val width = measureText(emotion.label)

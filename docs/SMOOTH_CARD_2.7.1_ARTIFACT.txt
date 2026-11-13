@@ -1,0 +1,37 @@
+Package: dev.jev.wechatmood (LSPosed)
+Version: 2.7.1 / 65 (verified in signed APK manifest)
+
+Offline tests: 426 passed, 0 failures, 0 errors, 0 skipped.
+Animation tests: 11 passed (AnalysisCardMotionTest: 8; AnalysisCardAnimationWiringTest: 3).
+Existing AnalysisCardContentTest: 5 passed.
+Debug and Release builds: BUILD SUCCESSFUL.
+Live model tests excluded by existing Gradle configuration.
+
+Build command:
+export JAVA_HOME=/workspace/jdk-17.0.13+11 ANDROID_HOME=/workspace/android-sdk ANDROID_SDK_ROOT=/workspace/android-sdk GRADLE_USER_HOME=/workspace/.gradle-yanwai
+/workspace/gradle-8.13/bin/gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease --no-daemon --console=plain -Pkotlin.compiler.execution.strategy=in-process -Pandroid.aapt2FromMavenOverride=/workspace/tools/aapt2
+
+After adding the final no-placeholder entry case, :app:testDebugUnitTest passed again.
+Build log: /workspace/yanwai-smooth-build.log
+Final test log: /workspace/yanwai-smooth-tests.log
+Test report: /workspace/yanwai/app/build/reports/tests/testDebugUnitTest/index.html
+
+Signing: zipalign -p -f 4; existing /workspace/keys/yanwai-release.jks, alias yanwai.
+Password read from the existing text file and passed through a temporary environment variable; not logged.
+apksigner verify --verbose --print-certs: Verifies, APK Signature Scheme v3 true.
+zipalign -c -p 4 on signed APK: passed.
+
+Signed intermediate: /tmp/yanwai-2.7.1-release.apk
+Delivery: /storage/emulated/0/Download/yanwai-2.7.1-smooth-release.apk
+Size: 16081413 bytes (15.34 MiB).
+APK SHA256: 8e67a0b0b6710d4a9bbf20da9eb655a50ba6122b8a2559ebd1ecae3f77a2636a
+Intermediate and delivered APK hashes match.
+
+Certificate DN: CN=Yanwai, OU=local, O=lcsauce, L=NA, ST=NA, C=CN
+Certificate SHA256: b8292dd14f057fbc434f2a0de57b3ffd9f4fe26ce479420396ec5bbf2a92dab5
+Certificate SHA1: 121d16bd8875f1781547b3fc6be4500dc6d68139
+Key: RSA, 2048 bits.
+
+Scenario descriptions and verification limits: SMOOTH_CARD_2.7.1.md.
+No real-device visual test or video: available adb binary cannot execute in this environment.
+No APK installation or real WeChat conversation interaction performed.

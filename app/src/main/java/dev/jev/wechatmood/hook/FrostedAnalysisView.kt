@@ -1,11 +1,16 @@
 package dev.jev.wechatmood.hook
 
 import android.annotation.SuppressLint
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.*
 import android.os.SystemClock
+import android.text.Spanned
 import android.view.View
 import android.view.ViewTreeObserver
+import android.view.animation.DecelerateInterpolator
 import android.widget.TextView
 import java.util.WeakHashMap
 
@@ -21,6 +26,162 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
     private var backdrop: Backdrop? = null
     private var attachedRoot: View? = null
     private val radius get() = 12f * resources.displayMetrics.density
+    private var contentAlpha = 1f
+    private var contentAnimator: ValueAnimator? = null
+    private var heightAnimator: ValueAnimator? = null
+    private var desired: AnalysisCardMotion.Content? = null
+    private var rendered: AnalysisCardMotion.Content? = null
+    private var displayedHeight = 0
+    private var targetHeight = 0
+    private var loadingHeight = 0
+    private var measuredCardWidth = 0
+    private var smoothNextMeasure = false
+    private var entrancePending = false
+
+    private fun curve() = when (AnalysisCardMotion.curve) {
+        AnalysisCardMotion.Curve.DECELERATE -> DecelerateInterpolator()
+    }
+
+    fun render(content: AnalysisCardMotion.Content, change: AnalysisCardMotion.Change) {
+        if (change == AnalysisCardMotion.Change.NONE) return
+        desired = content
+        if (change == AnalysisCardMotion.Change.RINGS && rendered?.lines == content.lines &&
+            rendered?.emotions?.map { it.label } == content.emotions.map { it.label }) {
+            val spans = (text as? Spanned)?.getSpans(0, text.length, EmotionRingSpan::class.java)
+            if (spans?.size == content.emotions.size) {
+                spans.zip(content.emotions).forEach { (span, emotion) -> span.update(emotion) }
+                rendered = content
+                updateDescription(content)
+                invalidate()
+                return
+            }
+        }
+        cancelContentAnimation()
+        val animated = isAttachedToWindow && isShown && ValueAnimator.areAnimatorsEnabled()
+        if (change == AnalysisCardMotion.Change.ENTER || change == AnalysisCardMotion.Change.DIRECT || !animated) {
+            applyContent(content, false)
+            contentAlpha = 1f
+            if (change == AnalysisCardMotion.Change.ENTER && ValueAnimator.areAnimatorsEnabled()) {
+                alpha = 0f
+                scaleX = AnalysisCardMotion.ENTER_SCALE
+                scaleY = AnalysisCardMotion.ENTER_SCALE
+                translationY = AnalysisCardMotion.ENTER_TRANSLATION_DP * resources.displayMetrics.density
+                entrancePending = true // Start only after the first nonzero content measurement.
+            }
+            invalidate()
+        } else {
+            fadeContent(0f, AnalysisCardMotion.CONTENT_OUT_MS) {
+                applyContent(requireNotNull(desired), true)
+                fadeContent(1f, AnalysisCardMotion.CONTENT_IN_MS)
+            }
+        }
+    }
+
+    private fun applyContent(content: AnalysisCardMotion.Content, smooth: Boolean) {
+        loadingHeight = if (content.loading) maxOf(loadingHeight, displayedHeight) else 0
+        smoothNextMeasure = smooth
+        text = AnalysisCardText.format(content, resources.displayMetrics.density,
+            (layoutParams?.width ?: measuredWidth) - paddingLeft - paddingRight)
+        rendered = content
+        updateDescription(content)
+    }
+
+    private fun updateDescription(content: AnalysisCardMotion.Content) {
+        contentDescription = content.lines.joinToString("\n") { line ->
+            if (line.emotion) content.emotions.joinToString("，") { "${it.label} ${it.percent}" }
+            else line.text
+        }
+    }
+
+    private fun cancelContentAnimation() {
+        contentAnimator?.removeAllListeners()
+        contentAnimator?.cancel()
+        contentAnimator = null
+    }
+
+    private fun fadeContent(to: Float, durationMs: Long, after: (() -> Unit)? = null) {
+        val animator = ValueAnimator.ofFloat(contentAlpha, to).apply {
+            duration = durationMs
+            interpolator = curve()
+            addUpdateListener { contentAlpha = it.animatedValue as Float; invalidate() }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) { contentAnimator = null; after?.invoke() }
+            })
+        }
+        contentAnimator = animator
+        animator.start()
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        val natural = maxOf(measuredHeight, loadingHeight)
+        val cardWidth = measuredWidth
+        if (displayedHeight == 0 || measuredCardWidth != cardWidth || !isAttachedToWindow || !ValueAnimator.areAnimatorsEnabled()) {
+            heightAnimator?.cancel(); heightAnimator = null
+            displayedHeight = natural
+            targetHeight = natural
+        } else if (natural != targetHeight) {
+            heightAnimator?.cancel(); heightAnimator = null
+            targetHeight = natural
+            if (smoothNextMeasure) {
+                val startHeight = displayedHeight
+                heightAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                    duration = AnalysisCardMotion.HEIGHT_MS
+                    interpolator = curve()
+                    addUpdateListener {
+                        displayedHeight = AnalysisCardMotion.heightAt(startHeight, natural, it.animatedValue as Float)
+                        requestLayout()
+                    }
+                    start()
+                }
+            } else displayedHeight = natural
+        }
+        measuredCardWidth = cardWidth
+        smoothNextMeasure = false
+        setMeasuredDimension(cardWidth, displayedHeight)
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        if (entrancePending && isAttachedToWindow) {
+            entrancePending = false
+            animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
+                .setDuration(AnalysisCardMotion.ENTER_MS).setInterpolator(curve()).start()
+        }
+    }
+
+    /** Fade just the text/rings: the frosted card surface remains fully drawn. */
+    override fun onDraw(canvas: Canvas) {
+        if (contentAlpha >= 1f) { super.onDraw(canvas); return }
+        val checkpoint = canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), (contentAlpha * 255).toInt())
+        super.onDraw(canvas)
+        canvas.restoreToCount(checkpoint)
+    }
+
+    fun finishAnimations() {
+        entrancePending = false
+        animate().withEndAction(null).cancel()
+        cancelContentAnimation()
+        heightAnimator?.cancel(); heightAnimator = null
+        val settledHeight = targetHeight
+        val needsLayout = displayedHeight != settledHeight
+        displayedHeight = settledHeight
+        desired?.takeIf { it != rendered }?.let { applyContent(it, false) }
+        alpha = 1f; scaleX = 1f; scaleY = 1f; translationY = 0f; contentAlpha = 1f
+        if (needsLayout) requestLayout()
+        invalidate()
+    }
+
+    fun close(after: () -> Unit) {
+        // Closing during entry must fade from the current frame, never snap back to alpha/scale 1.
+        entrancePending = false
+        animate().withEndAction(null).cancel()
+        cancelContentAnimation()
+        heightAnimator?.cancel(); heightAnimator = null
+        if (!isAttachedToWindow || !isShown || !ValueAnimator.areAnimatorsEnabled()) { after(); return }
+        animate().alpha(0f).scaleX(AnalysisCardMotion.CLOSE_SCALE).scaleY(AnalysisCardMotion.CLOSE_SCALE)
+            .setDuration(AnalysisCardMotion.CLOSE_MS).setInterpolator(curve()).withEndAction(after).start()
+    }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -30,6 +191,7 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
     }
 
     override fun onDetachedFromWindow() {
+        finishAnimations() // A recycled/detached card cannot return half faded or at an intermediate height.
         val root = attachedRoot
         backdrop?.let { if (--it.users == 0) { it.close(); if (root != null) backdrops.remove(root) } }
         backdrop = null; attachedRoot = null

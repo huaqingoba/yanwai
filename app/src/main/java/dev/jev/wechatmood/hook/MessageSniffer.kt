@@ -96,7 +96,7 @@ object MessageSniffer {
                             val holder = param.args.firstOrNull() ?: return
                             runCatching {
                                 val row = fields(holder.javaClass).firstOrNull { it.type == View::class.java }?.get(holder) as? View
-                                if (row != null) { cancelPendingCard(row); BubbleDecorator.clear(row); bindings.remove(row) }
+                                if (row != null) { cancelPendingCard(row); BubbleDecorator.prepareForBind(row); bindings.remove(row) }
                             }
                         }
                         override fun afterHookedMethod(param: MethodHookParam) {
@@ -123,8 +123,11 @@ object MessageSniffer {
                                 if (message != null) {
                                     bindings[row] = message
                                     restoreBoundCard(row)
-                                } else if (ModulePrefs.exploreMode) MoodLog.w("消息对象未识别：${param.thisObject.javaClass.name}")
-                            }.onFailure { MoodLog.w("消息类型读取失败：${it.javaClass.simpleName}") }
+                                } else {
+                                    BubbleDecorator.clear(row)
+                                    if (ModulePrefs.exploreMode) MoodLog.w("消息对象未识别：${param.thisObject.javaClass.name}")
+                                }
+                            }.onFailure { BubbleDecorator.clear(row); MoodLog.w("消息类型读取失败：${it.javaClass.simpleName}") }
                         }
                     })
                 }
