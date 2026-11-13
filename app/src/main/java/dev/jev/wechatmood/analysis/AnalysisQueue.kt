@@ -98,6 +98,7 @@ class AnalysisQueue(
         it.input.talker != talker || (!it.started && it.claim.key !in visibleKeys)
     }
     fun cancelConversation(talker: String) = cancelWhere { it.input.talker == talker }
+    fun cancelMessage(key: String) = cancelWhere { it.claim.key == key }
     fun cancelAll() = cancelWhere { true }
     fun resetSettings() {
         cancelAll()

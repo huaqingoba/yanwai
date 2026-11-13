@@ -12,11 +12,21 @@ class RuntimeSettings(val revision: Long,
     val canGenerateReply get() = reply.isConfigured
     val canAnalyze get() = if (emotion.source == EmotionSource.LLM) emotionLlm.isConfigured else api.isConfigured
     private val fingerprint: String by lazy { if (emotion.source == EmotionSource.LLM)
-        AnalysisCacheKey.digest("llm-emotion-v1", generation, emotionLlm.endpoint, emotionLlm.apiKey, emotionLlm.model)
+        AnalysisCacheKey.digest("llm-emotion-v1", generation, emotionLlm.endpoint, emotionLlm.apiKey, emotionLlm.model, emotionLlm.effort.name)
         else AnalysisCacheKey.digest("jev-intent-v2", generation, api.endpoint, api.apiKey, api.model, intent.route.id,
-            intent.llm.endpoint, intent.llm.apiKey, intent.llm.model) }
+            intent.llm.endpoint, intent.llm.apiKey, intent.llm.model, intent.llm.effort.name) }
     private val scopedFingerprint by lazy { AnalysisCacheKey.digest(fingerprint, rolesRevision.toString()) }
     fun analysisFingerprint(): String = scopedFingerprint
+    /** Before thinking controls existed, the default fingerprint did not contain an effort. */
+    internal fun legacyAnalysisFingerprint(): String? {
+        val effort = if (emotion.source == EmotionSource.LLM) emotionLlm.effort else intent.llm.effort
+        if (effort != dev.jev.wechatmood.reply.ThinkingEffort.MINIMAL) return null
+        val old = if (emotion.source == EmotionSource.LLM)
+            AnalysisCacheKey.digest("llm-emotion-v1", generation, emotionLlm.endpoint, emotionLlm.apiKey, emotionLlm.model)
+        else AnalysisCacheKey.digest("jev-intent-v2", generation, api.endpoint, api.apiKey, api.model, intent.route.id,
+            intent.llm.endpoint, intent.llm.apiKey, intent.llm.model)
+        return AnalysisCacheKey.digest(old, rolesRevision.toString())
+    }
     fun sameAnalysis(other: RuntimeSettings) = analysisFingerprint() == other.analysisFingerprint()
 }
 

@@ -45,14 +45,10 @@ class PersistentAnalysisCacheTest {
         }
     }
 
-    @Test fun `account contact message content time quote voice and model changes cannot share results`() {
+    @Test fun `account contact content and model changes cannot share results`() {
         val key = requireNotNull(AnalysisCacheKey.of(input, settings()))
         val variants = listOf(input.copy(accountScope = AnalysisCacheKey.digest("account-b")), input.copy(talker = "bob"),
-            input.copy(messageId = 43), input.copy(text = "不行"), input.copy(createdAt = 2000),
-            input.copy(quoted = QuotedMessage("引用", "张三", 1, "100")),
-            input.copy(voice = dev.jev.wechatmood.voice.VoiceSource("alice", 42, 1000, 0, "voice")),
-            input.copy(speaker = "其他群成员"), input.copy(zoneId = "UTC"),
-            input.copy(background = dev.jev.wechatmood.reply.ContactBackground("新背景", "r2")))
+            input.copy(text = "不行"))
         SqliteAnalysisCache(Jdbc(folder.newFile())).use { store ->
             store.save(key, mood, "{}")
             variants.forEach { assertNull(store.find(requireNotNull(AnalysisCacheKey.of(it, settings())))) }
@@ -65,10 +61,11 @@ class PersistentAnalysisCacheTest {
         assertNull(manual.selectedInput(input.copy(accountScope = "account-b")))
     }
 
-    @Test fun `unknown account and unstable message identities are not persisted`() {
+    @Test fun `unknown accounts are not persisted while missing message metadata is allowed`() {
         for (invalid in listOf(input.copy(accountScope = ""), input.copy(accountScope = "memory:screen"),
-            input.copy(accountScope = "pending:screen"), input.copy(messageId = 0), input.copy(createdAt = 0)))
+            input.copy(accountScope = "pending:screen"), input.copy(talker = ""), input.copy(text = " \n\t")))
             assertNull(AnalysisCacheKey.of(invalid, settings()))
+        assertEquals(AnalysisCacheKey.of(input, settings()), AnalysisCacheKey.of(input.copy(messageId = 0, createdAt = 0), settings()))
     }
 
     @Test fun `existing context keyed cache is promoted with original evidence and survives later history changes`() {
@@ -80,7 +77,7 @@ class PersistentAnalysisCacheTest {
         SqliteAnalysisCache(Jdbc(file)).use { store ->
             store.save(legacy, mood, "original evidence")
             val restored = AnalysisCacheLookup.find(input, config, store::find) { key, result ->
-                store.save(key, result.mood, result.evidence)
+                store.save(key, result)
             }
             assertEquals("original evidence", restored?.evidence)
             assertEquals(restored, store.find(stable))
@@ -140,12 +137,12 @@ class PersistentAnalysisCacheTest {
         }
     }
 
-    @Test fun `partial failure is not persisted and corrupt row becomes a miss`() {
+    @Test fun `partial failure is persisted and corrupt row becomes a miss`() {
         val db = Jdbc(folder.newFile())
         val key = requireNotNull(AnalysisCacheKey.of(input, settings()))
         SqliteAnalysisCache(db).use { store ->
             store.save(key, mood.copy(intentFailed = true), "{}")
-            assertNull(store.find(key))
+            assertTrue(requireNotNull(store.find(key)).mood.intentFailed)
             store.save(key, mood, "{}")
             db.execute("UPDATE analysis_results SET payload = ?", listOf("broken-json"))
             assertNull(store.find(key))
@@ -157,7 +154,7 @@ class PersistentAnalysisCacheTest {
     @Test fun `bounded retention removes oldest result while a refreshed hit survives`() {
         var clock = 1L
         SqliteAnalysisCache(Jdbc(folder.newFile()), capacity = 2, now = { clock++ }).use { store ->
-            val keys = (1L..3L).map { requireNotNull(AnalysisCacheKey.of(input.copy(messageId = it), settings())) }
+            val keys = (1L..3L).map { requireNotNull(AnalysisCacheKey.of(input.copy(text = "消息 $it"), settings())) }
             store.save(keys[0], mood, "{}")
             store.save(keys[1], mood, "{}")
             assertNotNull(store.find(keys[0]))
@@ -181,7 +178,7 @@ class PersistentAnalysisCacheTest {
     @Test fun `byte limit is enforced with large unicode results`() {
         SqliteAnalysisCache(Jdbc(folder.newFile()), maxBytes = 3000).use { store ->
             val first = requireNotNull(AnalysisCacheKey.of(input, settings()))
-            val second = requireNotNull(AnalysisCacheKey.of(input.copy(messageId = 43), settings()))
+            val second = requireNotNull(AnalysisCacheKey.of(input.copy(text = "不同内容"), settings()))
             store.save(first, mood.copy(detail = "字".repeat(500)), "{}")
             store.save(second, mood.copy(detail = "字".repeat(500)), "{}")
             assertNull(store.find(first))

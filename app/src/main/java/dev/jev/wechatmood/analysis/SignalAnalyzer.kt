@@ -14,6 +14,9 @@ object SignalAnalyzer {
         @Volatile var emotion: Mood? = null
     }
     private val stages = ConcurrentHashMap<String, Stage>()
+    private val forced = ConcurrentHashMap.newKeySet<String>()
+    private var prefetchJob: Job? = null
+    private var prefetchedKey: AnalysisCacheKey? = null
     private val queue = AnalysisQueue(scope, ModulePrefs::canAnalyze, { input ->
         ModulePrefs.requestReload()
         analyze(input) {
@@ -22,25 +25,63 @@ object SignalAnalyzer {
         }
     }, onComplete = { mood ->
         MoodLog.i("聊天解读完成：${mood.label}；intentFailed=${mood.intentFailed}")
-        ModulePrefs.report(if (mood.intentFailed) "JEV 情绪已完成，意图解读未完成" else "${ModulePrefs.analysisSettings()?.emotion?.source?.label}分析完成，已缓存 ${MoodStore.size()} 条")
+        ModulePrefs.report(if (mood.intentFailed) CachedAnalysisResult.RETRY_TEXT else "${ModulePrefs.analysisSettings()?.emotion?.source?.label}分析完成，已缓存 ${MoodStore.size()} 条")
+        scope.launch(Dispatchers.Main) { dev.jev.wechatmood.hook.MessageSniffer.refresh() }
     }, onFailure = { error ->
         MoodLog.e("分析失败：${error.message}")
         ModulePrefs.report("分析失败：${error.message}")
     })
     fun failure(key: String): String? = queue.failure(key)
     fun retryFailure(key: String) { MoodStore.retryIntent(key); queue.retryFailure(key); NativeVoiceBridge.retryFailures() }
+    fun cachedMood(input: AnalysisInput): Mood? {
+        MoodStore.get(input.key)?.let { return it }
+        if (input.key in forced || stages.containsKey(input.key)) return null
+        val settings = ModulePrefs.analysisSettings() ?: return null
+        val result = AnalysisResultCache.peek(input, settings) ?: return null
+        return if (MoodStore.restore(input.key, result)) result.mood else MoodStore.get(input.key)
+    }
+    /** Explicit retries revoke the old owner and skip both disk and memory caches once. */
+    fun reanalyze(input: AnalysisInput) {
+        prefetchJob?.cancel(); prefetchedKey = null
+        queue.cancelMessage(input.key)
+        stages.remove(input.key)
+        MoodStore.invalidate(input.key)
+        ModulePrefs.analysisSettings()?.let { AnalysisResultCache.invalidate(input, it) }
+        retryFailure(input.key)
+        forced.add(input.key)
+        submit(input)
+    }
+    /** Cache-only IO: entering a chat with auto analysis disabled never starts a model request. */
+    fun prefetch(input: AnalysisInput) {
+        val settings = ModulePrefs.analysisSettings() ?: return
+        val key = AnalysisCacheKey.of(input, settings) ?: return
+        if (key == prefetchedKey || input.key in forced) return
+        prefetchJob?.cancel()
+        prefetchedKey = key
+        prefetchJob = scope.launch {
+            if (!dev.jev.wechatmood.hook.ReplyDatabaseHistory.matchesAnalysisAccount(input)) return@launch
+            val result = AnalysisResultCache.find(input, settings)
+            ensureActive()
+            if (result != null && ModulePrefs.analysisSettings()?.sameAnalysis(settings) == true)
+                MoodStore.restore(input.key, result)
+            withContext(Dispatchers.Main) { dev.jev.wechatmood.hook.MessageSniffer.refresh() }
+        }
+    }
     fun progress(key: String): String? = stages[key]?.text
     fun partialMood(key: String): Mood? = stages[key]?.emotion
     fun reconcile(visibleKeys: Set<String>, talker: String?) =
         if (talker == null) queue.cancelAll() else queue.reconcile(visibleKeys, talker)
     fun cancelConversation(talker: String) = queue.cancelConversation(talker)
-    fun cancelAll() = queue.cancelAll()
-    fun resetSettings() { queue.resetSettings(); stages.clear() }
+    fun cancelAll() { queue.cancelAll(); prefetchJob?.cancel(); prefetchedKey = null }
+    fun resetSettings() {
+        cancelAll(); queue.resetSettings(); stages.clear(); forced.clear(); AnalysisResultCache.clearMemory()
+    }
 
     fun submit(input: AnalysisInput, stillVisible: () -> Boolean = { true }): String? {
         if (!ModulePrefs.canAnalyze(input)) return null
         if (MessagePolicy.textOrNull(input.text) == null) return null
         val key = input.key
+        if (cachedMood(input) != null) return key
         queue.submit(input, stillVisible)
         return key
     }
@@ -61,11 +102,15 @@ object SignalAnalyzer {
         check(snapshot.canAnalyze) { "请先配置所选分析模型" }
         if (!active()) throw CancellationException("分析已关闭或配置已改变")
         val verifiedAccount = dev.jev.wechatmood.hook.ReplyDatabaseHistory.matchesAnalysisAccount(input)
-        if (verifiedAccount) {
+        val bypassCache = forced.remove(input.key)
+        if (verifiedAccount && !bypassCache) {
             val cached = AnalysisResultCache.find(input, snapshot)
             if (!active()) throw CancellationException("分析已关闭或配置已改变")
-            if (cached != null) return@withContext cached
-        } else MoodLog.i("ANALYSIS_CACHE_ACCOUNT_UNVERIFIED 当前消息账号未核对，暂用内存缓存")
+            if (cached != null) {
+                MoodStore.failureDeadline(input.key, cached)
+                return@withContext cached.mood
+            }
+        } else if (!verifiedAccount) MoodLog.i("ANALYSIS_CACHE_ACCOUNT_UNVERIFIED 当前消息账号未核对，暂用内存缓存")
         val stage = Stage("正在分析…")
         stages[input.key] = stage
         try {
@@ -76,6 +121,14 @@ object SignalAnalyzer {
                 if (!active()) throw CancellationException("分析已关闭或配置已改变")
                 stage.text = "正在转写语音 ${++completed}/$total…"
                 NativeVoiceBridge.transcribe(source, shouldContinue)
+            }
+            if (input.voice != null && verifiedAccount && !bypassCache) {
+                val cached = AnalysisResultCache.find(prepared, snapshot)
+                if (!active()) throw CancellationException("分析已关闭或配置已改变")
+                if (cached != null) {
+                    MoodStore.failureDeadline(input.key, cached)
+                    return@withContext cached.mood
+                }
             }
             stage.text = "正在分析…"
             val mood = AnalysisRouter.analyze(prepared, snapshot,
@@ -91,14 +144,20 @@ object SignalAnalyzer {
             }
             val result = mood.copy(detail = mood.detail + note)
             if (!active()) throw CancellationException("分析已关闭或配置已改变")
-            if (verifiedAccount && !result.intentFailed) {
-                AnalysisResultCache.save(input, snapshot, result, AnalysisState.build(prepared).toString())
+            if (verifiedAccount) {
+                AnalysisResultCache.save(prepared, snapshot, result, AnalysisState.build(prepared).toString())
             }
             result
-        } catch (e: org.json.JSONException) {
-            throw IllegalStateException("模型返回不完整，本次不显示判断")
-        } catch (e: IllegalArgumentException) {
-            throw IllegalStateException(if (input.voice != null) "语音转写过长或分析返回不完整，本次不显示判断" else "模型返回不完整，本次不显示判断")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (!active()) throw CancellationException("分析已关闭或配置已改变")
+            MoodLog.e("分析失败：${e.message}")
+            val result = stage.emotion?.let { it.copy(intentFailed = true,
+                detail = it.detail.replace("智能分析中…", CachedAnalysisResult.RETRY_TEXT)) }
+                ?: CachedAnalysisResult.failure()
+            if (verifiedAccount) AnalysisResultCache.save(input, snapshot, result, AnalysisState.build(input).toString())
+            result
         } finally {
             stages.remove(input.key, stage)
         }

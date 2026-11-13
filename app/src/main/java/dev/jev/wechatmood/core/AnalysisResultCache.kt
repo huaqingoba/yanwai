@@ -7,6 +7,13 @@ import android.os.Bundle
 object AnalysisResultCache {
     @Volatile private var context: Context? = null
     private var lastFailure = 0L
+    private val memory = AnalysisCacheMemory()
+    fun peek(input: AnalysisInput, settings: RuntimeSettings): CachedAnalysisResult? =
+        AnalysisCacheKey.of(input, settings)?.let(memory::find)
+    fun invalidate(input: AnalysisInput, settings: RuntimeSettings) {
+        AnalysisCacheKey.of(input, settings)?.let(memory::remove)
+    }
+    fun clearMemory() = memory.clear()
     fun init(context: Context) { this.context = context.applicationContext ?: context }
     @Synchronized private fun failed(error: Throwable) {
         val now = System.nanoTime()
@@ -15,21 +22,26 @@ object AnalysisResultCache {
             lastFailure = now
         }
     }
-    fun find(input: AnalysisInput, settings: RuntimeSettings): Mood? {
+    fun find(input: AnalysisInput, settings: RuntimeSettings): CachedAnalysisResult? {
+        peek(input, settings)?.let { return it }
         return runCatching {
             AnalysisCacheLookup.find(input, settings, read = { key ->
                 val response = requireNotNull(SettingsTransport.call(requireNotNull(context), "cache_get", key.value, null))
                 response.getString("payload")?.let(CachedAnalysisResult::decode)
             }, promote = { key, result ->
                 runCatching { write(key, result) }.onFailure(::failed)
-            })?.mood
-        }.onFailure(::failed).getOrNull()?.also { MoodLog.i("ANALYSIS_CACHE_HIT 已读取言外本地分析结果") }
+            })
+        }.onFailure(::failed).getOrNull()?.also {
+            AnalysisCacheKey.of(input, settings)?.let { key -> memory.save(key, it) }
+            MoodLog.i("ANALYSIS_CACHE_HIT 已读取言外本地分析结果")
+        }
     }
     fun save(input: AnalysisInput, settings: RuntimeSettings, mood: Mood, evidence: String) {
-        if (mood.intentFailed) return
         val key = AnalysisCacheKey.of(input, settings) ?: return
+        val result = CachedAnalysisResult(mood, evidence, System.currentTimeMillis())
+        memory.save(key, result)
         runCatching {
-            write(key, CachedAnalysisResult(mood, evidence))
+            write(key, result)
             MoodLog.i("ANALYSIS_CACHE_SAVED 分析结果已保存到言外私有目录")
         }.onFailure(::failed)
     }

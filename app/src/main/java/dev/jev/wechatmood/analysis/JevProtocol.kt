@@ -10,9 +10,7 @@ import kotlin.math.roundToInt
 
 /** Two bounded rounds of native Jev choices. No free-text generation or guessed chat facts. */
 object JevProtocol {
-    val emotions = linkedMapOf("happy" to "开心", "calm" to "平静", "sad" to "失落",
-        "hurt" to "委屈", "annoyed" to "生气", "relieved" to "缓和", "anxious" to "焦虑",
-        "confused" to "困惑", "tired" to "疲惫", "unknown" to "不明确")
+    val emotions = dev.jev.wechatmood.core.EmotionDistribution.labels
     private val emotionCriteria = linkedMapOf(
         "happy" to "发送者表达喜悦、开心、兴奋或满意",
         "calm" to "平和地完整陈述事实、确认、解释或提出请求，没有明显情绪起伏",
@@ -46,9 +44,13 @@ object JevProtocol {
         .put("questions", JSONObject().put("emotion", choice(EMOTION, emotionCriteria)))
 
     fun parseEmotion(body: String): Mood {
-        val emotion = readChoice(JSONObject(body).getJSONObject("answers"), "emotion", emotions)
+        val json = dev.jev.wechatmood.core.EmotionDistribution.responseObject(body) ?: JSONObject()
+        val answers = json.optJSONObject("answers") ?: JSONObject().put("emotion", json)
+        val emotion = readEmotion(answers, "emotion")
         val profile = ChatProfile(emotion, emotion, emotion, emptyMap())
-        return Mood("情绪概率", emotionScore(profile), 0, "", "$header\n${emotionProbabilities(profile)}",
+        val failed = !dev.jev.wechatmood.core.EmotionDistribution.hasEmotionResult(answers.optJSONObject("emotion")?.toString().orEmpty())
+        return Mood("情绪概率", emotionScore(profile), 0, "", "$header\n${emotionProbabilities(profile)}" +
+            if (failed) "\n分析返回不完整，点击卡片重试。" else "", intentFailed = failed,
             emotions = displayEmotions(profile))
     }
 
@@ -66,7 +68,7 @@ object JevProtocol {
     fun parseProfile(body: String): ChatProfile {
         val answers = JSONObject(body).getJSONObject("answers")
         return ChatProfile(readChoice(answers, "scene", ChatTemplates.scenes),
-            readChoice(answers, "emotion", emotions), readChoice(answers, "progress", progress),
+            readEmotion(answers, "emotion"), readChoice(answers, "progress", progress),
             ChatFacts.questions.mapValues { (key, q) -> readChoice(answers, key, q.options) })
     }
 
@@ -117,7 +119,7 @@ object JevProtocol {
         val actions = ChatActions.candidates(profile)
         require(candidates.isNotEmpty() || actions.isNotEmpty())
         val answers = JSONObject(body).getJSONObject("answers")
-        val reviewed = profile.copy(emotion = readChoice(answers, "emotion_review", emotions),
+        val reviewed = profile.copy(emotion = readEmotion(answers, "emotion_review"),
             facts = profile.facts + ("speech_act" to readChoice(answers, "speech_act_review", ChatFacts.questions.getValue("speech_act").options)))
         val focus = if (candidates.isNotEmpty()) readChoice(answers, "focus", focusOptions(candidates)) else null
         val action = if (actions.isNotEmpty()) readChoice(answers, "action", ChatActions.options(profile)) else null
@@ -184,6 +186,17 @@ object JevProtocol {
 
     private fun focusOptions(candidates: List<ChatTemplate>): Map<String, String> =
         candidates.associate { it.id to "${it.title}；要判断：${it.question}" } + ("none" to "都不贴合或线索不足，暂不解读")
+
+    private fun readEmotion(answers: JSONObject, key: String): ChatDecision {
+        // Preserve precise valid JEV probabilities for existing decision thresholds.
+        runCatching { readChoice(answers, key, emotions) }.getOrNull()?.let { return it }
+        val answer = answers.optJSONObject(key) ?: JSONObject()
+        val scores = dev.jev.wechatmood.core.EmotionDistribution.normalize(text = answer.toString())
+        val probabilities = emotions.mapValues { (_, label) -> scores.first { it.label == label }.percent / 100.0 }
+        val choice = probabilities.maxByOrNull { it.value }!!.key
+        // Repaired/qualitative emotion data must not unlock decisions that require clear model evidence.
+        return ChatDecision(choice, probabilities, 0.0)
+    }
 
     private fun readChoice(answers: JSONObject, key: String, options: Map<String, String>): ChatDecision {
         val answer = answers.getJSONObject(key)

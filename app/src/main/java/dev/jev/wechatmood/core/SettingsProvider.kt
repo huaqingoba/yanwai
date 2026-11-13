@@ -92,7 +92,8 @@ class SettingsProvider : ContentProvider() {
                     IntentSettings.KEY_MODEL, EmotionSettings.KEY_SOURCE, EmotionSettings.KEY_REUSE_REPLY).forEach { putString(it, prefs.getString(it, "")) }
                 listOf(dev.jev.wechatmood.reply.ReplySettings.KEY_ENDPOINT,
                     dev.jev.wechatmood.reply.ReplySettings.KEY_API_KEY,
-                    dev.jev.wechatmood.reply.ReplySettings.KEY_MODEL).forEach { putString(it, prefs.getString(it, "")) }
+                    dev.jev.wechatmood.reply.ReplySettings.KEY_MODEL,
+                    dev.jev.wechatmood.reply.ReplySettings.KEY_THINKING_EFFORT).forEach { putString(it, prefs.getString(it, "")) }
                 putBoolean(dev.jev.wechatmood.reply.ReplySettings.KEY_CONSENT,
                     prefs.getBoolean(dev.jev.wechatmood.reply.ReplySettings.KEY_CONSENT, false))
             }

@@ -42,7 +42,8 @@ object ReplyProfiles {
         val endpoint = if (legacy) activeEndpoint else read(key(provider, "endpoint")).orEmpty()
         val apiKey = read(if (legacy) ReplySettings.KEY_API_KEY else key(provider, "key")).orEmpty()
         val model = read(if (legacy) ReplySettings.KEY_MODEL else key(provider, "model")).orEmpty()
-        return ReplySettings.fromInput(if (provider == ReplyProvider.CUSTOM) endpoint else provider.endpoint, apiKey, model)
+        return ReplySettings.fromInput(if (provider == ReplyProvider.CUSTOM) endpoint else provider.endpoint, apiKey, model,
+            ReplySettings.readEffort(read))
     }
 
     /** Only the selected profile is published to WeChat; all other keys stay in app preferences. */
@@ -59,6 +60,7 @@ object ReplyProfiles {
             ReplySettings.KEY_ENDPOINT to settings.endpoint, ReplySettings.KEY_API_KEY to settings.apiKey,
             ReplySettings.KEY_MODEL to settings.model, key(provider, "endpoint") to settings.endpoint,
             key(provider, "key") to settings.apiKey, key(provider, "model") to settings.model))
+        ReplySettings.saveEffort(settings.effort) { key, value -> updates[key] = value }
         return updates
     }
 }

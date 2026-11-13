@@ -43,9 +43,13 @@ object Diagnostics {
             if (it.emotion.source == EmotionSource.LLM) {
                 appendLine("analysisModel=${it.emotionLlm.model} config=${if (it.emotion.reuseReply) "复用回复设置" else "分析设置"}")
                 appendLine(dev.jev.wechatmood.analysis.AnalysisThinking.description(it.emotionLlm))
+            } else if (it.intent.route == IntentRoute.LLM) {
+                appendLine("intentModel=${it.intent.llm.model}")
+                appendLine(dev.jev.wechatmood.analysis.AnalysisThinking.description(it.intent.llm))
             }
         }
         appendLine("replyConfigured=${ModulePrefs.replySettings().isConfigured} manualReplyReady=${ModulePrefs.canGenerateReply}")
+        appendLine("回复模型：${dev.jev.wechatmood.analysis.AnalysisThinking.description(ModulePrefs.replySettings())}")
         appendLine("bridgeError=${ModulePrefs.lastBridgeError ?: "无已记录错误"}")
         appendLine("--- 当前进程日志（有容量上限，包含重启前保留记录） ---")
         appendLine(MoodLog.read().ifBlank { "尚无记录" })

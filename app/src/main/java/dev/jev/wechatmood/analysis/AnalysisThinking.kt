@@ -1,36 +1,109 @@
 package dev.jev.wechatmood.analysis
 
 import dev.jev.wechatmood.reply.ReplySettings
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import dev.jev.wechatmood.reply.ThinkingEffort
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONObject
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
-/** Verified official endpoint + model capabilities only; custom gateways keep their own defaults.
- * References and exceptions are recorded in docs/ANALYSIS_SOURCES.md.
- */
+/** Provider-shaped controls; custom gateways get a single, cached compatibility fallback. */
 object AnalysisThinking {
-    private fun canDisable(settings: ReplySettings): Boolean {
-        if (settings.endpoint.isBlank()) return false
-        val host = settings.endpoint.toHttpUrl().host
-        val model = settings.model.lowercase()
-        return when (host) {
-            "ark.cn-beijing.volces.com" -> model in setOf("doubao-seed-evolving", "doubao-seed-2-1-pro-260915",
-                "doubao-seed-2-1-lite-260915", "doubao-seed-2-1-pro-260628", "doubao-seed-2-1-turbo-260628",
-                "doubao-seed-2-0-lite-260428", "doubao-seed-2-0-mini-260428", "doubao-seed-2-0-pro-260215",
-                "doubao-seed-2-0-lite-260215", "doubao-seed-2-0-mini-260215", "doubao-seed-2-0-code-preview-260215")
-            "api.deepseek.com" -> model in setOf("deepseek-chat", "deepseek-reasoner", "deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash")
-            "api.xiaomimimo.com" -> model in setOf("mimo-v2.5", "mimo-v2.5-pro")
-            "api.moonshot.cn", "api.moonshot.ai" -> model == "kimi-k2.5"
-            "open.bigmodel.cn" -> model in setOf("glm-4.5", "glm-4.5-air", "glm-4.5-airx", "glm-4.5-flash", "glm-4.5v", "glm-4.6", "glm-4.6v", "glm-4.7", "glm-4.7-flash", "glm-5", "glm-5-turbo", "glm-5.1", "glm-5.2")
-            else -> false
+    private enum class Backend { OPENAI, DASHSCOPE, ANTHROPIC, GEMINI, DOMESTIC, GATEWAY, NO_REASONING }
+    // Full normalized endpoint (including path), shared by all clients in this process; no credentials.
+    private val unsupportedEndpoints = ConcurrentHashMap.newKeySet<String>()
+    private val openAiModel = Regex("^(gpt-[56](?:[.-].*)?|o[0-9]+(?:-.*)?)$")
+    private val rejectedField = Regex("reasoning|thinking|unknown[ _-]+field", RegexOption.IGNORE_CASE)
+
+    private fun backend(settings: ReplySettings): Backend {
+        val url = settings.endpoint.toHttpUrlOrNull() ?: return Backend.NO_REASONING
+        val host = url.host
+        fun domain(name: String) = host == name || host.endsWith(".$name")
+        val model = settings.model.lowercase(Locale.ROOT).substringAfterLast('/')
+        return when {
+            domain("dashscope.aliyuncs.com") || domain("dashscope-intl.aliyuncs.com") ||
+                domain("maas.aliyuncs.com") -> Backend.DASHSCOPE
+            host == "api.anthropic.com" || url.encodedPath.trimEnd('/').endsWith("/v1/messages") -> Backend.ANTHROPIC
+            host == "generativelanguage.googleapis.com" -> Backend.GEMINI
+            (host.startsWith("ark.") && domain("volces.com")) || domain("deepseek.com") ||
+                domain("moonshot.cn") || domain("moonshot.ai") || domain("bigmodel.cn") ||
+                domain("z.ai") || domain("xiaomimimo.com") -> Backend.DOMESTIC
+            openAiModel.matches(model) -> Backend.OPENAI
+            host == "api.openai.com" -> Backend.NO_REASONING
+            else -> Backend.GATEWAY
         }
     }
-    private fun openAiNone(settings: ReplySettings): Boolean = settings.endpoint.isNotBlank() &&
-        settings.endpoint.toHttpUrl().host == "api.openai.com" && settings.model.lowercase() in setOf(
-            "gpt-5.1", "gpt-5.2", "gpt-5.4", "gpt-5.4-2026-03-05", "gpt-5.5", "gpt-6-sol", "gpt-6-luna")
-    fun apply(settings: ReplySettings, payload: JSONObject): JSONObject = payload.apply {
-        if (canDisable(settings)) put("thinking", JSONObject().put("type", "disabled"))
-        else if (openAiNone(settings)) put("reasoning_effort", "none")
+
+    private fun cacheKey(settings: ReplySettings) = settings.endpoint.toHttpUrlOrNull()?.toString() ?: settings.endpoint
+
+    private fun canFallback(settings: ReplySettings): Boolean = when (backend(settings)) {
+        Backend.GATEWAY -> true
+        Backend.OPENAI -> settings.endpoint.toHttpUrlOrNull()?.host != "api.openai.com"
+        else -> false
     }
-    fun description(settings: ReplySettings): String = if (canDisable(settings) || openAiNone(settings)) "已按接口能力请求关闭深度思考"
-        else "此模型未启用已确认的关闭思考参数，按服务默认运行"
+
+    fun apply(settings: ReplySettings, payload: JSONObject): JSONObject {
+        removeThinkingFields(payload)
+        if (unsupportedEndpoints.contains(cacheKey(settings))) return payload
+        val effort = settings.effort
+        val minimum = effort == ThinkingEffort.OFF || effort == ThinkingEffort.MINIMAL
+        when (backend(settings)) {
+            Backend.OPENAI -> payload.put("reasoning_effort", when (effort) {
+                ThinkingEffort.OFF -> "none"
+                ThinkingEffort.MINIMAL -> "minimal"
+                else -> effort.name.lowercase(Locale.ROOT)
+            })
+            Backend.DASHSCOPE -> payload.put("enable_thinking", !minimum)
+                .put("thinking_budget", if (minimum) 1 else effort.budget)
+            Backend.ANTHROPIC -> payload.put("thinking", if (minimum) disabled() else
+                JSONObject().put("type", "enabled").put("budget_tokens", effort.budget))
+            Backend.GEMINI -> {
+                val config = payload.optJSONObject("generationConfig") ?: JSONObject().also { payload.put("generationConfig", it) }
+                config.put("thinkingConfig", JSONObject().put("thinkingBudget", effort.budget))
+            }
+            Backend.DOMESTIC -> if (minimum) payload.put("thinking", disabled())
+            Backend.GATEWAY -> {
+                payload.put("reasoning_effort", if (minimum) "minimal" else effort.name.lowercase(Locale.ROOT))
+                if (minimum) payload.put("thinking", disabled())
+            }
+            Backend.NO_REASONING -> Unit
+        }
+        return payload
+    }
+
+    private fun disabled() = JSONObject().put("type", "disabled")
+
+    private fun removeThinkingFields(payload: JSONObject) {
+        listOf("reasoning_effort", "thinking", "enable_thinking", "thinking_budget").forEach { payload.remove(it) }
+        payload.optJSONObject("generationConfig")?.let {
+            it.remove("thinkingConfig")
+            if (it.length() == 0) payload.remove("generationConfig")
+        }
+    }
+
+    /** Only an explicit parameter rejection on a custom endpoint can trigger one retry. */
+    internal fun fallbackPayload(settings: ReplySettings, payload: JSONObject, code: Int, errorBody: String): JSONObject? {
+        if ((code != 400 && code != 422) || !canFallback(settings) ||
+            (!payload.has("reasoning_effort") && !payload.has("thinking"))) return null
+        if (!rejectedField.containsMatchIn(errorBody)) return null
+        unsupportedEndpoints.add(cacheKey(settings))
+        return JSONObject(payload.toString()).also(::removeThinkingFields)
+    }
+
+    fun description(settings: ReplySettings): String {
+        val prefix = "思考强度：${settings.effort.label}"
+        if (unsupportedEndpoints.contains(cacheKey(settings))) return "$prefix（该端点已拒绝思考参数，后续请求不下发）"
+        val payload = apply(settings, JSONObject())
+        val parameters = when {
+            payload.has("enable_thinking") -> "enable_thinking=${payload.getBoolean("enable_thinking")}, thinking_budget=${payload.getInt("thinking_budget")}"
+            payload.has("generationConfig") -> "generationConfig.thinkingConfig.thinkingBudget=${settings.effort.budget}"
+            payload.has("thinking") -> payload.getJSONObject("thinking").let {
+                "thinking=${it.getString("type")}" + if (it.has("budget_tokens")) ", budget_tokens=${it.getInt("budget_tokens")}" else ""
+            }
+            else -> ""
+        }
+        val reasoning = if (payload.has("reasoning_effort")) "reasoning_effort=${payload.getString("reasoning_effort")}" else ""
+        val detail = listOf(reasoning, parameters).filter { it.isNotEmpty() }.joinToString(", ")
+        return "$prefix（${detail.ifEmpty { if (backend(settings) == Backend.DOMESTIC) "不下发 thinking，使用服务默认预算" else "该模型无可配置的思考参数" }}）"
+    }
 }

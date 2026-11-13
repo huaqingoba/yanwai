@@ -16,20 +16,21 @@ data class Mood(
     val detail: String = label,
     val intentFailed: Boolean = false,
     val emotions: Map<String, Double> = emptyMap(),
-)
+) {
+    // Recomputed on construction/copy, including legacy cached results and rule-only labels.
+    val distribution: List<EmotionScore> = EmotionDistribution.normalize(emotions, label, detail.substringBefore("语音转写："))
+}
 
 /**
  * 分析结果缓存。
  *
- * 三条约束决定了它的形状：
- * 1. 同一条消息及上下文不能重复请求模型 —— 用会话、消息身份和完整输入做键。
- * 2. 界面线程要能**立刻**拿到结果，不能等网络 —— 所以是「先占位、后填充」，
- *    装饰器拿到 null 就先不画，异步补上再通知刷新。
- * 3. 这里是界面使用的内存层；后台分析先从独立 SQLite 缓存恢复，再决定是否请求模型。
+ * 界面层仍按完整输入绑定卡片；内容缓存负责跨消息与页面复用。
+ * 先恢复缓存，未命中才显示 loading 并请求模型。失败五分钟后过期。
  */
 object MoodStore {
 
     private val cache = ConcurrentHashMap<String, Mood>()
+    private val failureExpires = ConcurrentHashMap<String, Long>()
     private val pending = mutableMapOf<String, Claim>()
 
     class Claim internal constructor(val key: String)
@@ -68,19 +69,38 @@ object MoodStore {
             .digest(source.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }
 
-    fun get(key: String): Mood? = cache[key]
+    @Synchronized fun get(key: String): Mood? {
+        if (failureExpires[key]?.let { System.currentTimeMillis() >= it } == true) invalidate(key)
+        return cache[key]
+    }
 
-    fun retryIntent(key: String) { cache.computeIfPresent(key) { _, mood -> if (mood.intentFailed) null else mood } }
+    @Synchronized fun restore(key: String, result: CachedAnalysisResult): Boolean {
+        if (pending.containsKey(key) || result.isExpired(System.currentTimeMillis())) return false
+        cache[key] = result.mood
+        if (result.mood.intentFailed) failureExpires[key] = result.createdAt + CachedAnalysisResult.FAILURE_TTL_MILLIS
+        else failureExpires.remove(key)
+        return true
+    }
+
+    @Synchronized fun invalidate(key: String) { cache.remove(key); failureExpires.remove(key) }
+
+    @Synchronized fun failureDeadline(key: String, result: CachedAnalysisResult) {
+        if (result.mood.intentFailed) failureExpires[key] = result.createdAt + CachedAnalysisResult.FAILURE_TTL_MILLIS
+    }
+
+    @Synchronized fun retryIntent(key: String) { if (get(key)?.intentFailed == true) invalidate(key) }
 
     /** 尝试认领一次分析任务；已经在跑或已完成返回 null。 */
     @Synchronized fun acquire(key: String): Claim? {
-        if (cache.containsKey(key) || pending.containsKey(key)) return null
+        if (get(key) != null || pending.containsKey(key)) return null
         return Claim(key).also { pending[key] = it }
     }
 
     @Synchronized fun complete(claim: Claim, mood: Mood): Boolean {
         if (pending[claim.key] !== claim) return false
         cache[claim.key] = mood
+        if (mood.intentFailed) failureExpires.putIfAbsent(claim.key, System.currentTimeMillis() + CachedAnalysisResult.FAILURE_TTL_MILLIS)
+        else failureExpires.remove(claim.key)
         pending.remove(claim.key)
         return true
     }
@@ -96,6 +116,7 @@ object MoodStore {
 
     @Synchronized fun clear() {
         cache.clear()
+        failureExpires.clear()
         pending.clear()
     }
 }

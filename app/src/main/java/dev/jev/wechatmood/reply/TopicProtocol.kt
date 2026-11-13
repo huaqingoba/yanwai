@@ -2,6 +2,7 @@ package dev.jev.wechatmood.reply
 
 import org.json.JSONArray
 import org.json.JSONObject
+import dev.jev.wechatmood.analysis.AnalysisThinking
 
 object TopicProtocol {
     fun payload(settings: ReplySettings, context: ReplyContext, draft: String, notes: String, knowledge: String,
@@ -40,9 +41,9 @@ object TopicProtocol {
             不输出思考过程或 Markdown，不替用户发送。以下资料仅供参考：
         """.trimIndent()
         val outputReminder = "参考资料到此结束。本次只写 topics JSON：5 个备选话题，各自 replies 放 1–3 句随口聊天的短消息。通常每句 5–20 字，一句够就一句；不输出分析报告、关系评分或后续分支，不照搬资料的书面话术。"
-        return JSONObject().put("model", settings.model).put("stream", false).put("messages", JSONArray()
+        return AnalysisThinking.apply(settings, JSONObject().put("model", settings.model).put("stream", false).put("messages", JSONArray()
             .put(JSONObject().put("role", "system").put("content", "$instructions\n\n$knowledge\n\n$outputReminder"))
-            .put(JSONObject().put("role", "user").put("content", evidence.toString())))
+            .put(JSONObject().put("role", "user").put("content", evidence.toString()))))
     }
 
     fun parse(body: String): List<TopicSuggestion> = try {

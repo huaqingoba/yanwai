@@ -27,7 +27,8 @@ import java.util.WeakHashMap
 object MessageMenu {
     private const val ITEM_ID = 0x4a455601
     private const val REPLY_ITEM_ID = 0x4a455602
-    private data class Target(val view: WeakReference<View>, val input: AnalysisInput? = null, val reply: MessageMetadata? = null)
+    private data class Target(val view: WeakReference<View>, val input: AnalysisInput? = null,
+        val reply: MessageMetadata? = null, val force: Boolean = false)
     // Bind callbacks to the actual menu item, not a global last-pressed message.
     private val targets = Collections.synchronizedMap(WeakHashMap<MenuItem, Target>())
 
@@ -68,7 +69,7 @@ object MessageMenu {
                     runCatching {
                         val view = target.view.get() ?: return@runCatching
                         val accepted = if (item.itemId == REPLY_ITEM_ID) target.reply?.let { MessageSniffer.suggestReply(view, it) } == true
-                            else target.input?.let { MessageSniffer.analyzeMessage(view, it) } == true
+                            else target.input?.let { MessageSniffer.analyzeMessage(view, it, target.force) } == true
                         if (!accepted) {
                             Toast.makeText(view.context, "消息已变化，请重新长按需要分析的文字或语音", Toast.LENGTH_SHORT).show()
                         }
@@ -96,9 +97,11 @@ object MessageMenu {
                             view.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
                                 android.content.res.Configuration.UI_MODE_NIGHT_YES)
                         if (input != null) {
-                            val item = add.invoke(menu, ITEM_ID, "翻译意图", icon) as? MenuItem
+                            val force = dev.jev.wechatmood.analysis.SignalAnalyzer.cachedMood(
+                                dev.jev.wechatmood.core.ModulePrefs.analysisInput(input)) != null
+                            val item = add.invoke(menu, ITEM_ID, if (force) "重新分析" else "翻译意图", icon) as? MenuItem
                                 ?: error("消息菜单未返回新增选项")
-                            targets[item] = Target(WeakReference(view), input)
+                            targets[item] = Target(WeakReference(view), input, force = force)
                         }
                         if (replyTarget != null) {
                             val reply = add.invoke(menu, REPLY_ITEM_ID, "帮我回", icon) as? MenuItem

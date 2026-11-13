@@ -19,6 +19,10 @@
         <com.google.android.material.textfield.MaterialAutoCompleteTextView android:id="@+id/intentRoute" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp" android:inputType="none" android:saveEnabled="false" android:importantForAutofill="no" />
     </com.google.android.material.textfield.TextInputLayout>
     <TextView android:id="@+id/routeHint" style="@style/Yanwai.Caption" android:layout_marginTop="8dp" />
+    <com.google.android.material.textfield.TextInputLayout android:id="@+id/thinkingEffortLayout" style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:hint="思考强度">
+        <com.google.android.material.textfield.MaterialAutoCompleteTextView android:id="@+id/thinkingEffort" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp" android:inputType="none" android:saveEnabled="false" android:importantForAutofill="no" />
+    </com.google.android.material.textfield.TextInputLayout>
+    <TextView style="@style/Yanwai.Caption" android:layout_marginTop="8dp" android:text="越低越快越省钱，情绪概率分布通常不需要深度思考。此档位同时用于 LLM 分析、回复建议和话题推荐；保存后下次请求生效。" />
     <TextView style="@style/Yanwai.Caption" android:layout_marginTop="16dp" android:text="分析会将消息与相关前文发送给所选服务，仅供参考。" />
     <com.google.android.material.button.MaterialButton android:id="@+id/saveIntent" style="@style/Yanwai.Button" android:layout_marginTop="16dp" android:text="保存分析方式" />
     </LinearLayout>

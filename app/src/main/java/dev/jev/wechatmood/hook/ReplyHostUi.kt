@@ -747,7 +747,7 @@ class ReplyHostUi(private val activity: Activity, createAnalysisControl: () -> V
                     ensureActive()
                     if (!session.accepts(ticket, MessageSniffer.currentReplyTalker()) || !ownsDrawer() || !ModulePrefs.canGenerateReply || current.background != composition.background) return@launch
                     val beforeSend = ModulePrefs.replySettings()
-                    if (beforeSend.endpoint != config.endpoint || beforeSend.model != config.model || beforeSend.apiKey != config.apiKey) {
+                    if (beforeSend.endpoint != config.endpoint || beforeSend.model != config.model || beforeSend.apiKey != config.apiKey || beforeSend.effort != config.effort) {
                         state.text = "配置已改变，请重试"; return@launch
                     }
                     val client = ReplyHttpClient()
@@ -757,7 +757,7 @@ class ReplyHostUi(private val activity: Activity, createAnalysisControl: () -> V
                     val activeConfig = ModulePrefs.replySettings()
                     if (!session.accepts(ticket, MessageSniffer.currentReplyTalker()) || !ownsDrawer() || !ModulePrefs.canGenerateReply) return@launch
                     if (!verifyAccount()) { window.dismiss(); return@launch }
-                    if (activeConfig.endpoint != config.endpoint || activeConfig.model != config.model || activeConfig.apiKey != config.apiKey) {
+                    if (activeConfig.endpoint != config.endpoint || activeConfig.model != config.model || activeConfig.apiKey != config.apiKey || activeConfig.effort != config.effort) {
                         state.text = "配置已改变，请重试"; return@launch
                     }
                     val accepted = if (topics != null) composition.acceptTopics(current, topics, requireNotNull(requestedTopicKey), focusId)

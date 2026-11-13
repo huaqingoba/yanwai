@@ -118,7 +118,18 @@ class JevProtocolTest {
         assertThrows(Exception::class.java) { JevProtocol.parseProfile(mismatched.toString()) }
         val unnormalized = JSONObject(valid)
         unnormalized.getJSONObject("answers").getJSONObject("emotion").getJSONObject("probabilities").put("calm", 0.5)
-        assertThrows(Exception::class.java) { JevProtocol.parseProfile(unnormalized.toString()) }
+        val repaired = JevProtocol.parseProfile(unnormalized.toString()).emotion
+        assertEquals(1.0, repaired.probabilities.values.sum(), 0.000001)
+        assertFalse(repaired.clear)
+    }
+
+    @Test fun `emotion-only protocol accepts qualitative choice percent strings and absent fields`() {
+        val qualitative = JevProtocol.parseEmotion("""{"answers":{"emotion":{"choice":"calm"}}}""")
+        assertEquals(70, qualitative.distribution.single { it.label == "平静" }.percent)
+        val probabilities = JevProtocol.parseEmotion("""前言 ```json {"probabilities":{"calm":"49%","hurt":3.0,"annoyed":"33%","relieved":"1%","unknown":14.0}} ``` 后记""")
+        assertEquals(49, probabilities.distribution.single { it.label == "平静" }.percent)
+        assertEquals(100, probabilities.distribution.sumOf { it.percent })
+        assertEquals(100, JevProtocol.parseEmotion("{}").distribution.single { it.label == "不明确" }.percent)
     }
 
     @Test fun `unknown card interpretation or absent second round answer is rejected`() {

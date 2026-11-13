@@ -47,8 +47,10 @@ object SettingsSync {
             runCatching { dev.jev.wechatmood.reply.ReplySettings.fromInput(
                 bundle.getString(dev.jev.wechatmood.reply.ReplySettings.KEY_ENDPOINT).orEmpty(),
                 bundle.getString(dev.jev.wechatmood.reply.ReplySettings.KEY_API_KEY).orEmpty(),
-                bundle.getString(dev.jev.wechatmood.reply.ReplySettings.KEY_MODEL).orEmpty()) }
-                .getOrElse { dev.jev.wechatmood.reply.ReplySettings.empty() },
+                bundle.getString(dev.jev.wechatmood.reply.ReplySettings.KEY_MODEL).orEmpty(),
+                dev.jev.wechatmood.reply.ReplySettings.readEffort { bundle.getString(it) }) }
+                .getOrElse { dev.jev.wechatmood.reply.ReplySettings.empty(
+                    dev.jev.wechatmood.reply.ReplySettings.readEffort { bundle.getString(it) }) },
             bundle.getBoolean(dev.jev.wechatmood.reply.ReplySettings.KEY_CONSENT, false),
             IntentSettings.load { bundle.getString(it) },
             CardDisplaySettings.load { bundle.getBoolean(it, true) }, emotion,

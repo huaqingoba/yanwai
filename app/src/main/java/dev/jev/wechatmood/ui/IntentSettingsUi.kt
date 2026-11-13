@@ -19,6 +19,8 @@ class IntentSettingsUi(private val activity: AppCompatActivity, private val bind
     private val prefs = activity.getSharedPreferences(ModulePrefs.FILE_NAME, Context.MODE_PRIVATE)
     private var route = IntentRoute.resolve(prefs.getString(IntentSettings.KEY_ROUTE, null))
     private var emotion = EmotionSettings.load { prefs.getString(it, null) }
+    private var effort = ReplySettings.readEffort { prefs.getString(it, null) }
+    private var effortDirty = false
     private var provider = ReplyProvider.resolve(prefs.getString(IntentProfiles.KEY_PROVIDER, null),
         prefs.getString(IntentSettings.KEY_ENDPOINT, "").orEmpty()).let {
         if (prefs.getString(IntentSettings.KEY_ENDPOINT, "").isNullOrBlank()) ReplyProvider.DEEPSEEK else it
@@ -35,6 +37,10 @@ class IntentSettingsUi(private val activity: AppCompatActivity, private val bind
         binding.emotionSource.setSimpleItems(arrayOf("决策模型（JEV）", "智能模型（LLM）"))
         binding.configSource.setSimpleItems(arrayOf("独立分析模型", "复用回复模型"))
         binding.intentRoute.setSimpleItems(arrayOf("决策模型（JEV）", "智能模型（LLM）"))
+        binding.thinkingEffort.setSimpleItems(ThinkingEffort.entries.map {
+            if (it == ThinkingEffort.MINIMAL) "最低（默认）" else it.label
+        }.toTypedArray())
+        showEffort()
         binding.emotionSource.setText(if (emotion.source == EmotionSource.LLM) "智能模型（LLM）" else "决策模型（JEV）", false)
         binding.configSource.setText(if (emotion.reuseReply) "复用回复模型" else "独立分析模型", false)
         binding.intentRoute.setText(if (route == IntentRoute.LLM) "智能模型（LLM）" else "决策模型（JEV）", false)
@@ -52,6 +58,11 @@ class IntentSettingsUi(private val activity: AppCompatActivity, private val bind
         binding.intentRoute.setOnItemClickListener { _, _, position, _ ->
             route = if (position == 1) IntentRoute.LLM else IntentRoute.JEV
             showRoute(); status("有未保存修改", R.color.status_warning)
+        }
+        binding.thinkingEffort.setOnItemClickListener { _, _, position, _ ->
+            effort = ThinkingEffort.entries[position]
+            effortDirty = true
+            dirty(); status("有未保存修改", R.color.status_warning)
         }
         modelBinding.provider.setOnItemClickListener { _, _, position, _ ->
             drafts[provider] = Draft(modelBinding.endpoint.text.toString(), modelBinding.apiKey.text.toString(), modelBinding.model.text.toString())
@@ -122,7 +133,7 @@ class IntentSettingsUi(private val activity: AppCompatActivity, private val bind
         if (modelBinding.apiKey.text.isNullOrBlank()) { modelBinding.keyLayout.error = "请填写 API Key"; return null }
         if (requireModel && modelBinding.model.text.isNullOrBlank()) { modelBinding.modelLayout.error = "请选择或填写模型 ID"; return null }
         return try {
-            ReplySettings.fromInput(endpoint, modelBinding.apiKey.text.toString(), if (requireModel) modelBinding.model.text.toString() else "")
+            ReplySettings.fromInput(endpoint, modelBinding.apiKey.text.toString(), if (requireModel) modelBinding.model.text.toString() else "", effort)
                 .also { MoodLog.protect(it.apiKey) }
         } catch (e: IllegalArgumentException) { result(e.message.orEmpty(), true); null }
     }
@@ -132,8 +143,10 @@ class IntentSettingsUi(private val activity: AppCompatActivity, private val bind
             putString(IntentSettings.KEY_ROUTE, route.id)
             putString(EmotionSettings.KEY_SOURCE, emotion.source.id)
             putString(EmotionSettings.KEY_REUSE_REPLY, emotion.reuseReply.toString())
+            ReplySettings.saveEffort(effort) { key, value -> putString(key, value) }
         }) { status("保存失败，请重试", R.color.status_error); return false }
         ModulePrefs.reload(force = true)
+        effortDirty = false
         status("分析方式已保存", R.color.status_success)
         renderSharedConfig()
         routeChanged(emotion.source)
@@ -147,13 +160,14 @@ class IntentSettingsUi(private val activity: AppCompatActivity, private val bind
             result("保存失败，请重试", true); return null
         }
         ModulePrefs.reload(force = true)
+        effortDirty = false
         renderSharedConfig()
         return settings
     }
 
     private fun savedModelFingerprint(): String {
         val saved = IntentSettings.load { prefs.getString(it, null) }.llm
-        return AnalysisCacheKey.digest("analysis-connection", ModulePrefs.analysisSettings()?.generation.orEmpty(), saved.endpoint, saved.apiKey, saved.model)
+        return AnalysisCacheKey.digest("analysis-connection", ModulePrefs.analysisSettings()?.generation.orEmpty(), saved.endpoint, saved.apiKey, saved.model, saved.effort.name)
     }
 
     private fun setModels(models: List<String>) {
@@ -212,12 +226,20 @@ class IntentSettingsUi(private val activity: AppCompatActivity, private val bind
         }
     }
     fun onShown() {
+        if (!effortDirty) {
+            effort = ReplySettings.readEffort { prefs.getString(it, null) }
+            showEffort()
+        }
         renderSharedConfig()
         if (testedFingerprint != null && testedFingerprint != savedModelFingerprint()) {
             testedFingerprint = null
             modelStatus("配置已变化 · 请重新检测", R.color.status_warning)
             modelBinding.intentResult.visibility = View.GONE
         }
+    }
+
+    private fun showEffort() {
+        binding.thinkingEffort.setText(if (effort == ThinkingEffort.MINIMAL) "最低（默认）" else effort.label, false)
     }
 
     private fun renderSharedConfig() {

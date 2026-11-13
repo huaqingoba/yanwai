@@ -8,6 +8,26 @@ import java.io.File
 class AnalysisCacheWiringTest {
     private fun source(path: String) = File("src/main/java/dev/jev/wechatmood/$path").readText()
 
+    @Test fun `cards consult prefetched memory and wait for cache miss before attaching loading UI`() {
+        val decorator = source("hook/BubbleDecorator.kt")
+        assertTrue(decorator.indexOf("SignalAnalyzer.cachedMood(message)") < decorator.indexOf("state = attach("))
+        assertTrue(decorator.contains("SignalAnalyzer.progress(key) == null"))
+        val analyzer = source("analysis/SignalAnalyzer.kt")
+        assertTrue(analyzer.indexOf("AnalysisResultCache.find(input, snapshot)") < analyzer.indexOf("Stage(\"正在分析…\")"))
+        assertTrue(source("hook/MessageSniffer.kt").contains("latestIncoming(chatScope, records, talker)"))
+        val prefetch = analyzer.substringAfter("fun prefetch(").substringBefore("fun progress(")
+        assertFalse(prefetch.contains("AnalysisRouter.analyze"))
+    }
+
+    @Test fun `retry actions bypass cache and incomplete results are saved`() {
+        val analyzer = source("analysis/SignalAnalyzer.kt")
+        assertTrue(analyzer.contains("val bypassCache = forced.remove(input.key)"))
+        assertTrue(analyzer.contains("verifiedAccount && !bypassCache"))
+        assertTrue(source("hook/MessageMenu.kt").contains("\"重新分析\""))
+        assertTrue(source("hook/BubbleDecorator.kt").contains("SignalAnalyzer.reanalyze(message)"))
+        assertFalse(source("core/AnalysisResultCache.kt").contains("if (mood.intentFailed) return"))
+    }
+
     @Test fun `turning a chat off must retain evidence used to find completed results`() {
         val prefs = source("core/ModulePrefs.kt")
         val switch = prefs.substringAfter("fun setChatEnabled(").substringBefore("fun report(")

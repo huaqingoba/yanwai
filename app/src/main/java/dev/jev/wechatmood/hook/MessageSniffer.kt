@@ -239,11 +239,11 @@ object MessageSniffer {
             .filter { it.talker == talker }.distinctBy { it.key }.singleOrNull()
     }
 
-    fun analyzeMessage(view: View, expected: AnalysisInput): Boolean {
+    fun analyzeMessage(view: View, expected: AnalysisInput, force: Boolean = false): Boolean {
         val input = inputForView(view) ?: return false
         val identity = ManualAnalysis.identity(input) ?: return false
         if (identity != ManualAnalysis.identity(expected) || !ModulePrefs.selectMessage(input)) return false
-        SignalAnalyzer.retryFailure(ModulePrefs.analysisInput(input).key)
+        if (force) SignalAnalyzer.reanalyze(ModulePrefs.analysisInput(input))
         refresh()
         return true
     }
@@ -399,6 +399,34 @@ object MessageSniffer {
         return records
     }
 
+    /** Include the adapter tail even if the user entered while scrolled above the last message. */
+    private fun latestIncoming(scope: List<View>, rows: List<Pair<View, BoundMessage>>, talker: String): AnalysisInput? {
+        fun tail(count: Int, itemAt: (Int) -> MessageMetadata?): AnalysisInput? {
+            for (position in count - 1 downTo (count - dev.jev.wechatmood.core.MessagePolicy.MAX_CONTEXT_SCAN).coerceAtLeast(0)) {
+                val message = itemAt(position) ?: continue
+                if (message.talker == talker && message.isSend == 0) {
+                    // Other media are not analysis targets; do not prefetch an older text instead.
+                    return MessageContext.collect(message, position, itemAt)
+                }
+            }
+            return null
+        }
+        scope.filterIsInstance<ListView>().firstOrNull()?.let { list ->
+            return runCatching { tail(list.count) { MessageMetadata.read(list.getItemAtPosition(it)) } }.getOrNull()
+        }
+        val adapter = rows.firstNotNullOfOrNull { (_, bound) ->
+            bound.adapter?.get()?.takeIf { bound.talker == talker }
+        }
+        if (adapter != null) return runCatching {
+            val count = adapter.javaClass.methods.firstOrNull {
+                it.parameterCount == 0 && it.name in setOf("getItemCount", "getCount") && it.returnType == Int::class.javaPrimitiveType
+            }?.invoke(adapter) as? Int ?: return@runCatching null
+            val getter = adapter.javaClass.getMethod("getItem", Int::class.javaPrimitiveType)
+            tail(count) { MessageMetadata.read(getter.invoke(adapter, it)) }
+        }.getOrNull()
+        return rows.mapNotNull { it.second.input }.filter { it.talker == talker }.maxByOrNull { it.createdAt }
+    }
+
     private fun scan(activity: Activity) {
         ModulePrefs.requestReload()
         // Embedded ChattingUILayout is a sibling of LauncherUI's content frame.
@@ -439,6 +467,9 @@ object MessageSniffer {
             IntArray(2).also { view.getLocationOnScreen(it) }[1]
         }.mapNotNull { (_, message) -> message.input?.takeIf { it.talker == talker } }
             .map(ModulePrefs::analysisInput).distinctBy { it.key }
+        if (talker != null) {
+            latestIncoming(chatScope, records, talker)?.let(ModulePrefs::analysisInput)?.let(SignalAnalyzer::prefetch)
+        }
         val selected = messages.filter(ModulePrefs::shouldDisplay)
         visibleKeys = selected.map { it.key }.toSet()
         SignalAnalyzer.reconcile(visibleKeys, talker)

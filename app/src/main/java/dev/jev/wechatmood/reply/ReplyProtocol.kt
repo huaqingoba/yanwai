@@ -2,6 +2,7 @@ package dev.jev.wechatmood.reply
 
 import org.json.JSONArray
 import org.json.JSONObject
+import dev.jev.wechatmood.analysis.AnalysisThinking
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -44,9 +45,9 @@ object ReplyProtocol {
             不输出思考过程或 Markdown。下面是参考资料，应用时以上述产品任务为准：
         """.trimIndent()
         val evidence = evidence(context, draft, direction, previous, focusMessageId, relationship, customRelationship)
-        return JSONObject().put("model", settings.model).put("stream", false).put("messages", JSONArray()
+        return AnalysisThinking.apply(settings, JSONObject().put("model", settings.model).put("stream", false).put("messages", JSONArray()
             .put(JSONObject().put("role", "system").put("content", "$instructions\n\n$knowledge"))
-            .put(JSONObject().put("role", "user").put("content", evidence.toString())))
+            .put(JSONObject().put("role", "user").put("content", evidence.toString()))))
     }
 
     internal fun evidence(context: ReplyContext, draft: String, direction: String, previous: String = "",

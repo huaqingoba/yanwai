@@ -6,11 +6,11 @@ import android.widget.LinearLayout
 import android.widget.RelativeLayout
 import android.widget.TextView
 import dev.jev.wechatmood.analysis.SignalAnalyzer
-import dev.jev.wechatmood.analysis.JevProtocol
 import dev.jev.wechatmood.core.ModulePrefs
 import dev.jev.wechatmood.core.MoodLog
 import dev.jev.wechatmood.core.MoodStore
 import dev.jev.wechatmood.core.AnalysisInput
+import dev.jev.wechatmood.core.Mood
 import java.util.IdentityHashMap
 
 /** Append a sibling below the real text bubble, without replacing a host row or ViewHolder. */
@@ -25,35 +25,33 @@ object BubbleDecorator {
     fun show(row: View, message: AnalysisInput?): Boolean {
         if (message == null || !ModulePrefs.shouldDisplay(message)) { clear(row); return false }
         val key = message.key
-        val mood = MoodStore.get(key) ?: SignalAnalyzer.partialMood(key)
+        val mood = SignalAnalyzer.cachedMood(message) ?: SignalAnalyzer.partialMood(key)
+        // Hold off on creating a card during cache IO. Only a miss starts a loading card.
+        if (mood == null && SignalAnalyzer.progress(key) == null && SignalAnalyzer.failure(key) == null &&
+            ModulePrefs.canAnalyze(message)) { clear(row); return true }
         val display = ModulePrefs.analysisSettings()?.cardDisplay ?: dev.jev.wechatmood.core.CardDisplaySettings()
-        if (mood != null && AnalysisCardContent.lines(mood, display).isEmpty()) {
-            clear(row)
-            return true // intentionally hidden, not an unsupported host layout
-        }
         var state = cards[row]
         if (state != null && (state.key != key || state.view.parent !== state.parent)) {
             clear(row)
             state = null
         }
         if (state == null) {
-            state = attach(row, key) ?: return false
+            state = attach(row, message) ?: return false
             cards[row] = state
         }
-        val value = mood?.let {
-            AnalysisCardText.format(it, row.resources.displayMetrics.density,
-                state.view.layoutParams.width - state.view.paddingLeft - state.view.paddingRight, state.view.paint, display)
-        } ?: SignalAnalyzer.failure(key)?.let {
-            "${JevProtocol.header}\n分析失败：$it\n点击此卡重试"
-        } ?: "${JevProtocol.header}\n" + if (ModulePrefs.canAnalyze(message))
+        val status = SignalAnalyzer.failure(key)?.let { "分析失败：$it\n点击此卡重试" }
+            ?: if (ModulePrefs.canAnalyze(message))
             SignalAnalyzer.progress(key) ?: if (message.voice != null || message.context.any { it.voice != null }) "正在准备语音…" else "正在分析…"
             else if (!message.backgroundReady) "正在读取对方背景；读取失败时会重试"
             else "模型未配置或设置未连接"
+        val value = AnalysisCardText.format(mood ?: Mood("不明确", 0.0, 0, "", status), row.resources.displayMetrics.density,
+            state.view.layoutParams.width - state.view.paddingLeft - state.view.paddingRight, state.view.paint, display)
         if (state.view.text.toString() != value.toString()) state.view.text = value
         return true
     }
 
-    private fun attach(row: View, key: String): Card? {
+    private fun attach(row: View, message: AnalysisInput): Card? {
+        val key = message.key
         val root = row as? ViewGroup ?: return null
         val anchor = findBubble(root) ?: return null
         val rowPos = IntArray(2).also { root.getLocationOnScreen(it) }
@@ -67,11 +65,10 @@ object BubbleDecorator {
             setPadding(dp(row, 12), dp(row, 7), dp(row, 12), dp(row, 7))
             setLineSpacing(dp(row, 1).toFloat(), 1f)
             setTextColor(0xFFF0F1F5.toInt())
-            minHeight = dp(row, 48)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             setOnClickListener {
                 if (SignalAnalyzer.failure(key) != null || MoodStore.get(key)?.intentFailed == true) {
-                    SignalAnalyzer.retryFailure(key)
+                    SignalAnalyzer.reanalyze(message)
                     MessageSniffer.refresh()
                 }
             }

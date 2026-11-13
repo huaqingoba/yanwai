@@ -25,8 +25,12 @@ class LlmAnalysisTransportTest {
             val client = ReplyHttpClient()
             suspend fun run() = AnalysisRouter.analyze(input, settings, { error("Unexpected JEV request") },
                 { cfg, payload -> client.request(cfg, payload) { it } })
-            try { run(); fail("Malformed response must fail") } catch (e: IllegalStateException) { assertTrue(e.message!!.contains("不完整")) }
-            assertTrue(run().detail.contains("LLM 定性"))
+            val incomplete = run()
+            assertTrue(incomplete.intentFailed)
+            assertEquals(100, incomplete.distribution.single { it.label == "不明确" }.percent)
+            val recovered = run()
+            assertFalse(recovered.intentFailed)
+            assertEquals(70, recovered.distribution.single { it.label == "疲惫" }.percent)
             assertEquals(2, server.requestCount)
             repeat(2) {
                 val request = server.takeRequest(2, TimeUnit.SECONDS)!!

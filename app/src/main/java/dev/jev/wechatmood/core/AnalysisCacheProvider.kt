@@ -32,7 +32,7 @@ object AnalysisCacheProvider {
             "cache_get" -> Bundle().apply { storage(context).find(key)?.let { putString("payload", it.encode()) } }
             "cache_put" -> {
                 val result = CachedAnalysisResult.decode(requireNotNull(extras?.getString("payload")))
-                storage(context).save(key, result.mood, result.evidence)
+                storage(context).save(key, result)
                 Bundle().apply { putBoolean("saved", true) }
             }
             else -> throw IllegalArgumentException("Unknown cache method")

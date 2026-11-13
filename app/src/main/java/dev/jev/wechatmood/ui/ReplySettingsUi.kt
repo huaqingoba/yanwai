@@ -101,7 +101,7 @@ class ReplySettingsUi(private val activity: AppCompatActivity, private val bindi
     private fun readSettings(requireModel: Boolean): ReplySettings? {
         binding.endpointLayout.error = null; binding.keyLayout.error = null; binding.modelLayout.error = null
         val settings = try { ReplySettings.fromInput(binding.endpoint.text.toString(), binding.apiKey.text.toString(),
-            if (requireModel) binding.model.text.toString() else "") }
+            if (requireModel) binding.model.text.toString() else "", ReplySettings.readEffort { prefs.getString(it, null) }) }
         catch (e: IllegalArgumentException) { result(e.message.orEmpty(), true); return null }
         if (settings.endpoint.isBlank() || settings.apiKey.isBlank() || requireModel && settings.model.isBlank()) {
             if (settings.endpoint.isBlank()) binding.endpointLayout.error = "请填写 API 地址"
