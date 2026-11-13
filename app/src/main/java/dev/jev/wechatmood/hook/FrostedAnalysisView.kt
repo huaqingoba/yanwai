@@ -5,6 +5,7 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.*
 import android.text.Spanned
 import android.view.Choreographer
@@ -22,7 +23,9 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
     private val bounds = RectF()
     private val clip = Path()
     private val snapshotBounds = RectF()
-    private val snapshotState = AnalysisCardSnapshotState()
+    private val surface = AnalysisCardSurfaceState()
+    private val snapshotState = surface.snapshotState
+    private val dark get() = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
     private var snapshot: Snapshot? = null
     private var backdrop: Backdrop? = null
     private var attachedRoot: View? = null
@@ -38,6 +41,12 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
     private var measuredCardWidth = 0
     private var smoothNextMeasure = false
     private var entrancePending = false
+
+    init { setTextColor(if (dark) 0xFFF0F1F5.toInt() else 0xFF202229.toInt()) }
+
+    fun updateOpacity(opacity: Int) {
+        if (surface.updateOpacity(opacity)) invalidate()
+    }
 
     private fun curve() = when (AnalysisCardMotion.curve) {
         AnalysisCardMotion.Curve.DECELERATE -> DecelerateInterpolator()
@@ -84,7 +93,7 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
         loadingHeight = if (content.loading) maxOf(loadingHeight, displayedHeight) else 0
         smoothNextMeasure = smooth
         text = AnalysisCardText.format(content, resources.displayMetrics.density,
-            (layoutParams?.width ?: measuredWidth) - paddingLeft - paddingRight)
+            (layoutParams?.width ?: measuredWidth) - paddingLeft - paddingRight, dark)
         rendered = content
         updateDescription(content)
     }
@@ -222,18 +231,18 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
         paint.style = Paint.Style.FILL
         paint.alpha = 255 // Reset the translucent stroke alpha left by the previous frame.
         // Even transparent/unsupported host regions must never expose live, unblurred chat text.
-        canvas.drawColor(AnalysisCardBackdrop.opaqueTop)
         val image = snapshot?.image?.takeUnless { it.isRecycled }
-        image?.let {
+        if (AnalysisCardBackdrop.drawsBackdrop(hasSnapshot = image != null, opacity = surface.opacity)) {
+            canvas.drawColor(AnalysisCardBackdrop.colors(hasSnapshot = false, dark = dark).first)
             paint.color = Color.WHITE
-            canvas.drawBitmap(it, null, snapshotBounds, paint)
+            canvas.drawBitmap(requireNotNull(image), null, snapshotBounds, paint)
         }
-        val (top, bottom) = AnalysisCardBackdrop.colors(hasSnapshot = image != null)
+        val (top, bottom) = AnalysisCardBackdrop.colors(hasSnapshot = image != null, opacity = surface.opacity, dark = dark)
         paint.shader = LinearGradient(0f, 0f, 0f, height.toFloat().coerceAtLeast(1f),
             top, bottom, Shader.TileMode.CLAMP)
         canvas.drawRect(bounds, paint)
         paint.shader = null
-        paint.color = 0x32E3E8F0; paint.style = Paint.Style.STROKE
+        paint.color = if (dark) 0x32E3E8F0 else 0x322B2D34; paint.style = Paint.Style.STROKE
         paint.strokeWidth = resources.displayMetrics.density
         bounds.inset(paint.strokeWidth / 2, paint.strokeWidth / 2)
         canvas.drawRoundRect(bounds, radius, radius, paint)

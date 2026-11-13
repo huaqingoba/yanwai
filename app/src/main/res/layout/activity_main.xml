@@ -123,6 +123,10 @@
                 <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/showTone" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="显示情绪倾向" android:saveEnabled="false" />
                 <TextView android:id="@+id/cardDisplayStatus" style="@style/Yanwai.Caption" android:text="切换立即保存，不重新分析。" android:accessibilityLiveRegion="polite" />
                 <TextView style="@style/Yanwai.Caption" android:layout_marginTop="8dp" android:text="只影响智能分析的三项解读；情绪指标和失败提示始终保留。" />
+                <TextView android:id="@+id/cardOpacityValue" style="@style/Yanwai.Body" android:layout_marginTop="16dp" android:text="卡片不透明度：96%" android:labelFor="@id/cardOpacity" />
+                <SeekBar android:id="@+id/cardOpacity" android:layout_width="match_parent" android:layout_height="48dp" android:min="85" android:max="100" android:progress="96" android:contentDescription="卡片不透明度" android:saveEnabled="false" />
+                <TextView style="@style/Yanwai.Caption" android:text="越高越不透，100% 为纯色" />
+                <TextView android:id="@+id/cardOpacityStatus" style="@style/Yanwai.Caption" android:text="拖动立即保存并预览。" android:accessibilityLiveRegion="polite" />
                 <TextView style="@style/Yanwai.Section" android:layout_marginTop="24dp" android:text="遇到问题" />
                 <TextView style="@style/Yanwai.Body" android:text="先复现一次，再导出日志。问题自行恢复后，也可以查看之前的记录。" />
                 <com.google.android.material.button.MaterialButton android:id="@+id/buttonExportLog" style="@style/Yanwai.Button.Outline" android:layout_marginTop="12dp" android:text="导出运行日志" />

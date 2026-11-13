@@ -8,12 +8,11 @@ import java.io.File
 class AnalysisCardSurfaceTest {
     private fun source(name: String) = File("src/main/java/dev/jev/wechatmood/hook/$name.kt").readText()
 
-    @Test fun `frosted gradient alpha is dense but translucent and keeps the dark palette`() {
+    @Test fun `default frosted gradient is 96 percent in both themes`() {
         val colors = AnalysisCardBackdrop.colors(hasSnapshot = true)
-        listOf(colors.first, colors.second).forEach {
-            assertTrue("Frosted alpha must stay in E0-EF", (it ushr 24) in 0xE0..0xEF)
-        }
-        assertEquals(0xE62B2D34.toInt() to 0xE6202229.toInt(), colors)
+        assertEquals(0xF52B2D34.toInt() to 0xF5202229.toInt(), colors)
+        assertEquals(0xF5FFFFFF.toInt() to 0xF5F3F4F6.toInt(),
+            AnalysisCardBackdrop.colors(hasSnapshot = true, dark = false))
     }
 
     @Test fun `missing or failed snapshot selects the fully opaque fallback`() {
@@ -28,12 +27,12 @@ class AnalysisCardSurfaceTest {
         val draw = source("FrostedAnalysisView").substringAfter("override fun draw(canvas: Canvas)")
             .substringBefore("private fun acceptSnapshot(")
         assertTrue(draw.contains("canvas.drawRect(bounds, paint)"))
-        assertTrue(draw.contains("AnalysisCardBackdrop.colors(hasSnapshot = image != null)"))
+        assertTrue(draw.contains("AnalysisCardBackdrop.colors(hasSnapshot = image != null, opacity = surface.opacity, dark = dark)"))
         assertTrue(draw.contains("top, bottom, Shader.TileMode.CLAMP"))
-        assertTrue(draw.indexOf("canvas.drawColor(AnalysisCardBackdrop.opaqueTop)") < draw.indexOf("canvas.drawBitmap("))
+        assertTrue(draw.indexOf("canvas.drawColor(") < draw.indexOf("canvas.drawBitmap("))
         assertTrue(draw.indexOf("canvas.drawBitmap(") < draw.indexOf("paint.shader = LinearGradient("))
         assertTrue(draw.contains("clip.addRoundRect(bounds, radius, radius, Path.Direction.CW)"))
-        assertTrue(draw.contains("paint.color = 0x32E3E8F0"))
+        assertTrue(draw.contains("paint.color = if (dark) 0x32E3E8F0 else 0x322B2D34"))
     }
 
     @Test fun `every gradient fill resets alpha left by the translucent border`() {
@@ -41,7 +40,7 @@ class AnalysisCardSurfaceTest {
         val reset = draw.indexOf("paint.alpha = 255")
         val gradient = draw.indexOf("paint.shader = LinearGradient(")
         val fill = draw.indexOf("canvas.drawRect(bounds, paint)")
-        val border = draw.indexOf("paint.color = 0x32E3E8F0")
+        val border = draw.indexOf("paint.color = if (dark) 0x32E3E8F0")
         assertTrue("Each draw must reset the shared paint before the gradient fill",
             reset >= 0 && gradient > reset && fill > gradient && border > fill)
     }
@@ -50,7 +49,7 @@ class AnalysisCardSurfaceTest {
         val view = source("FrostedAnalysisView")
         val draw = view.substringAfter("override fun draw(canvas: Canvas)").substringBefore("private fun acceptSnapshot(")
         assertTrue(draw.contains("if (capturing) return"))
-        assertTrue(draw.contains("canvas.drawBitmap(it, null, snapshotBounds, paint)"))
+        assertTrue(draw.contains("canvas.drawBitmap(requireNotNull(image), null, snapshotBounds, paint)"))
         listOf("getLocationOnScreen", "request(", "capture(", "root.draw(").forEach { assertFalse(draw.contains(it)) }
         val preDraw = view.substringAfter("override fun onPreDraw()").substringBefore("private fun capture()")
         assertTrue(preDraw.contains("it.snapshotState.needsCapture"))

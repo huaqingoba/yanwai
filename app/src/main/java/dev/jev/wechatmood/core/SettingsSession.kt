@@ -7,7 +7,9 @@ class RuntimeSettings(val revision: Long,
     val replyConsent: Boolean = false, // Legacy wire field; manual generation no longer depends on it.
     val intent: IntentSettings = IntentSettings(),
     val cardDisplay: CardDisplaySettings = CardDisplaySettings(),
-    val emotion: EmotionSettings = EmotionSettings(), val rolesRevision: Long = 0) {
+    val emotion: EmotionSettings = EmotionSettings(), val rolesRevision: Long = 0,
+    cardOpacity: Int = CardOpacity.DEFAULT) {
+    val cardOpacity = CardOpacity.normalize(cardOpacity)
     val emotionLlm get() = if (emotion.reuseReply) reply else intent.llm
     val canGenerateReply get() = reply.isConfigured
     val canAnalyze get() = if (emotion.source == EmotionSource.LLM) emotionLlm.isConfigured else api.isConfigured
@@ -31,6 +33,7 @@ class RuntimeSettings(val revision: Long,
 }
 
 class SettingsSession(private val onAnalysisChanged: () -> Unit = {}) {
+    var onCardOpacityChanged: () -> Unit = {}
     @Volatile var current: RuntimeSettings? = null
         private set
     private var generation: String? = null
@@ -59,6 +62,7 @@ class SettingsSession(private val onAnalysisChanged: () -> Unit = {}) {
         retiredGenerations.remove(snapshot.generation)
         if (snapshot.rolesRevision < (current?.rolesRevision ?: 0L)) return true
         if (snapshot.revision >= (current?.revision ?: -1L)) {
+            val opacityChanged = current?.cardOpacity != snapshot.cardOpacity
             if (current?.sameAnalysis(snapshot) != true) {
                 // Block new submissions while revoking old jobs and their ownership.
                 current = null
@@ -66,6 +70,7 @@ class SettingsSession(private val onAnalysisChanged: () -> Unit = {}) {
                 MoodStore.clear()
             }
             current = snapshot
+            if (opacityChanged) onCardOpacityChanged()
         }
         return true
     }

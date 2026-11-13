@@ -23,7 +23,7 @@ object AnalysisCardText {
         return format(content(mood, display), density, availableWidth)
     }
 
-    fun format(content: AnalysisCardMotion.Content, density: Float, availableWidth: Int): CharSequence {
+    fun format(content: AnalysisCardMotion.Content, density: Float, availableWidth: Int, dark: Boolean = true): CharSequence {
         val emotions = content.emotions
         val lines = content.lines
         val text = SpannableStringBuilder()
@@ -45,7 +45,7 @@ object AnalysisCardText {
             }
             line.label?.let { label ->
                 text.setSpan(StyleSpan(Typeface.BOLD), lineStart, lineStart + label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                text.setSpan(ForegroundColorSpan(0xFFB2E3D5.toInt()), lineStart, lineStart + label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                text.setSpan(ForegroundColorSpan(if (dark) 0xFFB2E3D5.toInt() else 0xFF20685C.toInt()), lineStart, lineStart + label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
         }
         return text

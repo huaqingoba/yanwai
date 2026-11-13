@@ -66,4 +66,18 @@ class SettingsLayoutTest {
             assertEquals(1, elements("activity_main").count { it.getAttribute("android:id") == "@+id/$id" })
         }
     }
+
+    @Test fun opacitySliderUsesTheAnalysisCardSectionAndOnePercentSteps() {
+        val nodes = elements("activity_main")
+        val slider = nodes.single { it.getAttribute("android:id") == "@+id/cardOpacity" }
+        assertEquals("SeekBar", slider.tagName)
+        assertEquals("85", slider.getAttribute("android:min"))
+        assertEquals("100", slider.getAttribute("android:max"))
+        assertEquals("96", slider.getAttribute("android:progress"))
+        assertEquals("false", slider.getAttribute("android:saveEnabled"))
+        assertEquals("@+id/aboutPanel", (slider.parentNode as Element).getAttribute("android:id"))
+        assertTrue(nodes.any { it.getAttribute("android:text") == "越高越不透，100% 为纯色" })
+        assertTrue(File("src/main/java/dev/jev/wechatmood/MainActivity.kt").readText()
+            .contains("binding.cardOpacity.keyProgressIncrement = 1"))
+    }
 }

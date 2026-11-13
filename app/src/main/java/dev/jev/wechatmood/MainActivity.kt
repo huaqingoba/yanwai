@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import android.widget.TextView
+import android.widget.SeekBar
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.core.view.ViewCompat
@@ -20,6 +21,7 @@ import dev.jev.wechatmood.analysis.ChatAnalysis
 import dev.jev.wechatmood.analysis.JevHttpClient
 import dev.jev.wechatmood.core.ModulePrefs
 import dev.jev.wechatmood.core.ApiSettings
+import dev.jev.wechatmood.core.CardOpacity
 import dev.jev.wechatmood.core.ApiProfiles
 import dev.jev.wechatmood.core.JevProvider
 import dev.jev.wechatmood.core.MoodLog
@@ -453,6 +455,29 @@ class MainActivity : AppCompatActivity() {
 
     private fun bindDisplaySettings() {
         val prefs = getSharedPreferences(ModulePrefs.FILE_NAME, MODE_PRIVATE)
+        fun showOpacity(value: Int) {
+            binding.cardOpacityValue.text = "卡片不透明度：$value%"
+            ViewCompat.setStateDescription(binding.cardOpacity, "$value%")
+        }
+        binding.cardOpacity.keyProgressIncrement = 1
+        binding.cardOpacity.progress = CardOpacity.load { prefs.all[it] }
+        showOpacity(binding.cardOpacity.progress)
+        binding.cardOpacity.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                showOpacity(progress)
+                if (!fromUser) return
+                val saved = SettingsProvider.save(this@MainActivity) { putInt(CardOpacity.KEY, CardOpacity.normalize(progress)) }
+                if (saved) ModulePrefs.requestReload(force = true) else {
+                    seekBar.progress = CardOpacity.load { prefs.all[it] }
+                    showOpacity(seekBar.progress)
+                }
+                SettingsStatus.show(binding.cardOpacityStatus,
+                    if (saved) "已保存，聊天卡片已更新。" else "保存失败，请重试。",
+                    if (saved) R.color.status_success else R.color.status_error)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+        })
         listOf(binding.showIntent to dev.jev.wechatmood.core.CardDisplaySettings.KEY_INTENT,
             binding.showConcern to dev.jev.wechatmood.core.CardDisplaySettings.KEY_CONCERN,
             binding.showTone to dev.jev.wechatmood.core.CardDisplaySettings.KEY_TONE).forEach { (toggle, key) ->

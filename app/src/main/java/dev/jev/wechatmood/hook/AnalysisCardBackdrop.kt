@@ -1,9 +1,9 @@
 package dev.jev.wechatmood.hook
 
+import dev.jev.wechatmood.core.CardOpacity
+
 /** Android-free surface and snapshot policy, shared by the host renderer and offline tests. */
 internal object AnalysisCardBackdrop {
-    val frostedTop = 0xE62B2D34.toInt()
-    val frostedBottom = 0xE6202229.toInt()
     val opaqueTop = 0xFF2B2D34.toInt()
     val opaqueBottom = 0xFF202229.toInt()
     const val BLUR_RADIUS = 3
@@ -12,8 +12,15 @@ internal object AnalysisCardBackdrop {
     const val MAX_WIDTH = 160
     const val MAX_HEIGHT = 280
 
-    fun colors(hasSnapshot: Boolean): Pair<Int, Int> =
-        if (hasSnapshot) frostedTop to frostedBottom else opaqueTop to opaqueBottom
+    fun colors(hasSnapshot: Boolean, opacity: Int = CardOpacity.DEFAULT, dark: Boolean = true): Pair<Int, Int> {
+        val alpha = if (hasSnapshot) CardOpacity.alpha(opacity) else 255
+        val top = if (dark) 0x2B2D34 else 0xFFFFFF
+        val bottom = if (dark) 0x202229 else 0xF3F4F6
+        return ((alpha shl 24) or top) to ((alpha shl 24) or bottom)
+    }
+
+    fun drawsBackdrop(hasSnapshot: Boolean, opacity: Int): Boolean =
+        hasSnapshot && CardOpacity.normalize(opacity) < CardOpacity.MAX
 
     /** Two horizontal/vertical box-blur rounds on an already downsampled ARGB image. */
     fun soften(pixels: IntArray, width: Int, height: Int) {
@@ -38,6 +45,20 @@ internal object AnalysisCardBackdrop {
                 }
             }
         }
+    }
+}
+
+/** Opacity invalidates only the tint; the frozen snapshot has its own unchanged lifecycle. */
+internal class AnalysisCardSurfaceState {
+    val snapshotState = AnalysisCardSnapshotState()
+    var opacity = CardOpacity.DEFAULT
+        private set
+
+    fun updateOpacity(value: Int): Boolean {
+        val next = CardOpacity.normalize(value)
+        if (next == opacity) return false
+        opacity = next
+        return true
     }
 }
 

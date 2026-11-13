@@ -21,7 +21,7 @@ class EmotionRingSpan(private var emotion: EmotionIndicator, private val density
         val width = measureText(emotion.label)
         if (width > maxWidth) textSize *= maxWidth / width
     }
-    private fun numberPaint(paint: Paint) = Paint(paint).apply { textSize *= 0.65f; color = 0xFFF0F1F5.toInt() }
+    private fun numberPaint(paint: Paint) = Paint(paint).apply { textSize *= 0.65f }
     private fun diameter(paint: Paint) = max(24f * density, numberPaint(paint).measureText("100%") + 6f * density).coerceAtMost(maxWidth)
     private fun stacked(paint: Paint) = diameter(paint) + 3f * density + labelPaint(paint).measureText(emotion.label) > maxWidth
     private fun width(paint: Paint): Float = if (stacked(paint)) max(diameter(paint), labelPaint(paint).measureText(emotion.label))

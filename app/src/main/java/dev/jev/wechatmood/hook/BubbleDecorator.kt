@@ -50,6 +50,7 @@ object BubbleDecorator {
             cards[row] = state
         }
         restoreVisibility(state)
+        state.view.updateOpacity(ModulePrefs.analysisSettings()?.cardOpacity ?: dev.jev.wechatmood.core.CardOpacity.DEFAULT)
         state.message = message
         val status = SignalAnalyzer.failure(key)?.let { "分析失败：$it\n点击此卡重试" }
             ?: if (ModulePrefs.canAnalyze(message))
@@ -79,7 +80,6 @@ object BubbleDecorator {
                 dp(row, AnalysisCardMotion.HORIZONTAL_PADDING_DP), dp(row, 7))
             gravity = android.view.Gravity.TOP or android.view.Gravity.START
             setLineSpacing(dp(row, 1).toFloat(), 1f)
-            setTextColor(0xFFF0F1F5.toInt())
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             setOnClickListener {
                 val message = cards[row]?.takeIf { it.key == key }?.message ?: return@setOnClickListener
@@ -177,6 +177,11 @@ object BubbleDecorator {
     /** Used only by an explicit reanalysis action, never by ordinary message-row refreshes. */
     fun refreshBackdrop(key: String) {
         cards.values.filter { it.key == key }.forEach { it.view.refreshBackdrop() }
+    }
+
+    /** Settings pushes redraw attached cards immediately, without binding content or taking a frame. */
+    fun updateOpacity(opacity: Int) {
+        cards.values.forEach { it.view.updateOpacity(opacity) }
     }
 
     /** Hide stale data only for the synchronous host bind; same-message binding retains its root. */

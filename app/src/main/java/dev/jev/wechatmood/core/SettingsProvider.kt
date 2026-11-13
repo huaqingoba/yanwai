@@ -84,6 +84,7 @@ class SettingsProvider : ContentProvider() {
                 putLong(ReplyIdentityProvider.KEY_ROLE_REVISION, ReplyIdentityProvider.rolesRevision(context))
                 putBoolean(ModulePrefs.KEY_EXPLORE, prefs.getBoolean(ModulePrefs.KEY_EXPLORE, false))
                 CardDisplaySettings.KEYS.forEach { putBoolean(it, prefs.getBoolean(it, true)) }
+                putInt(CardOpacity.KEY, CardOpacity.load { prefs.all[it] })
                 putString(ModulePrefs.KEY_API_BASE, prefs.getString(ModulePrefs.KEY_API_BASE, ApiSettings.DEFAULT_ENDPOINT))
                 putString(ModulePrefs.KEY_API_KEY, prefs.getString(ModulePrefs.KEY_API_KEY, ""))
                 putString(ModulePrefs.KEY_API_PROVIDER, prefs.getString(ModulePrefs.KEY_API_PROVIDER, null))

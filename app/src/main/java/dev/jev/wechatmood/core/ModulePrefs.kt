@@ -16,9 +16,16 @@ object ModulePrefs {
     @Volatile private var conversations: ConversationSwitches? = null
     private val manualAnalysis = ManualAnalysis()
     private val analysisSnapshots = AnalysisSnapshots()
-    private val session = SettingsSession {
+    private val session: SettingsSession = SettingsSession {
         dev.jev.wechatmood.analysis.SignalAnalyzer.resetSettings()
         analysisSnapshots.clear()
+    }.apply {
+        onCardOpacityChanged = {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                dev.jev.wechatmood.hook.BubbleDecorator.updateOpacity(
+                    session.current?.cardOpacity ?: CardOpacity.DEFAULT)
+            }
+        }
     }
     private val bridgeWorker = Executors.newSingleThreadExecutor { task -> Thread(task, "yanwai-settings") }
     private val bridge = SettingsBridge(session, { bridgeWorker.execute(it) },
