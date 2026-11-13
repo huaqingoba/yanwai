@@ -84,6 +84,7 @@ object BubbleDecorator {
             setOnClickListener {
                 val message = cards[row]?.takeIf { it.key == key }?.message ?: return@setOnClickListener
                 if (SignalAnalyzer.failure(key) != null || MoodStore.get(key)?.intentFailed == true) {
+                    refreshBackdrop()
                     SignalAnalyzer.reanalyze(message)
                     MessageSniffer.refresh()
                 }
@@ -171,6 +172,11 @@ object BubbleDecorator {
             current = current.parent as? View
         }
         return false
+    }
+
+    /** Used only by an explicit reanalysis action, never by ordinary message-row refreshes. */
+    fun refreshBackdrop(key: String) {
+        cards.values.filter { it.key == key }.forEach { it.view.refreshBackdrop() }
     }
 
     /** Hide stale data only for the synchronous host bind; same-message binding retains its root. */

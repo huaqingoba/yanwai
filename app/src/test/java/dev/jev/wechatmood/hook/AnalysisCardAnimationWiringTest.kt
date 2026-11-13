@@ -39,7 +39,7 @@ class AnalysisCardAnimationWiringTest {
     }
 
     @Test fun `close waits for removal and never snaps a partial entrance to fully visible`() {
-        val close = source("FrostedAnalysisView").substringAfter("fun close(").substringBefore("override fun onAttachedToWindow")
+        val close = source("FrostedAnalysisView").substringAfter("fun close(").substringBefore("fun refreshBackdrop()")
         assertFalse(close.contains("finishAnimations()"))
         assertTrue(close.contains(".setDuration(AnalysisCardMotion.CLOSE_MS)"))
         assertTrue(close.contains(".withEndAction(after)"))

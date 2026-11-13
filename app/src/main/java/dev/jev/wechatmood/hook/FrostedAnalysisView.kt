@@ -6,23 +6,24 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.*
-import android.os.SystemClock
 import android.text.Spanned
+import android.view.Choreographer
 import android.view.View
 import android.view.ViewTreeObserver
 import android.view.animation.DecelerateInterpolator
 import android.widget.TextView
 import java.util.WeakHashMap
 
-/** Backdrop only is blurred. Text stays opaque; unsupported host rendering falls back to tint. */
+/** Static blurred backdrop with a dense tint; content fades independently of the surface. */
 // Injected into WeChat with its host context; module AppCompat themes/resources are not available.
 @SuppressLint("AppCompatCustomView")
 class FrostedAnalysisView(context: Context) : TextView(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val bounds = RectF()
     private val clip = Path()
-    private val position = IntArray(2)
-    private val rootPosition = IntArray(2)
+    private val snapshotBounds = RectF()
+    private val snapshotState = AnalysisCardSnapshotState()
+    private var snapshot: Snapshot? = null
     private var backdrop: Backdrop? = null
     private var attachedRoot: View? = null
     private val radius get() = 12f * resources.displayMetrics.density
@@ -44,6 +45,8 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
 
     fun render(content: AnalysisCardMotion.Content, change: AnalysisCardMotion.Change) {
         if (change == AnalysisCardMotion.Change.NONE) return
+        snapshotState.render(change)
+        if (snapshotState.needsCapture) backdrop?.request(this)
         desired = content
         if (change == AnalysisCardMotion.Change.RINGS && rendered?.lines == content.lines &&
             rendered?.emotions?.map { it.label } == content.emotions.map { it.label }) {
@@ -183,38 +186,51 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
             .setDuration(AnalysisCardMotion.CLOSE_MS).setInterpolator(curve()).withEndAction(after).start()
     }
 
+    /** Explicit reanalysis can take one new snapshot; routine content/scroll refreshes cannot. */
+    fun refreshBackdrop() {
+        snapshotState.refresh()
+        if (snapshotState.needsCapture) backdrop?.request(this)
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        snapshotState.attach()
         val root = rootView
         attachedRoot = root
         backdrop = backdrops.getOrPut(root) { Backdrop(root) }.also { it.users++ }
+        if (snapshotState.needsCapture) backdrop?.request(this)
     }
 
     override fun onDetachedFromWindow() {
         finishAnimations() // A recycled/detached card cannot return half faded or at an intermediate height.
+        snapshotState.detach()
         val root = attachedRoot
-        backdrop?.let { if (--it.users == 0) { it.close(); if (root != null) backdrops.remove(root) } }
+        backdrop?.let {
+            it.cancel(this)
+            if (--it.users == 0) { it.close(); if (root != null) backdrops.remove(root) }
+        }
         backdrop = null; attachedRoot = null
         super.onDetachedFromWindow()
     }
 
     override fun draw(canvas: Canvas) {
-        if (capturing) return // Exclude every analysis card from the shared backdrop, including its text.
+        if (capturing) return // Exclude all analysis surfaces AND their text from the host snapshot.
         val checkpoint = canvas.save()
         bounds.set(0f, 0f, width.toFloat(), height.toFloat())
         clip.reset(); clip.addRoundRect(bounds, radius, radius, Path.Direction.CW)
         canvas.clipPath(clip)
-        backdrop?.bitmap?.takeUnless { it.isRecycled }?.let { image ->
-            val root = attachedRoot ?: return@let
-            getLocationOnScreen(position); root.getLocationOnScreen(rootPosition)
-            val left = (rootPosition[0] - position[0]).toFloat()
-            val top = (rootPosition[1] - position[1]).toFloat()
-            paint.color = Color.WHITE; paint.style = Paint.Style.FILL
-            canvas.drawBitmap(image, null, RectF(left, top, left + root.width, top + root.height), paint)
-        }
         paint.style = Paint.Style.FILL
+        paint.alpha = 255 // Reset the translucent stroke alpha left by the previous frame.
+        // Even transparent/unsupported host regions must never expose live, unblurred chat text.
+        canvas.drawColor(AnalysisCardBackdrop.opaqueTop)
+        val image = snapshot?.image?.takeUnless { it.isRecycled }
+        image?.let {
+            paint.color = Color.WHITE
+            canvas.drawBitmap(it, null, snapshotBounds, paint)
+        }
+        val (top, bottom) = AnalysisCardBackdrop.colors(hasSnapshot = image != null)
         paint.shader = LinearGradient(0f, 0f, 0f, height.toFloat().coerceAtLeast(1f),
-            0xC02B2D34.toInt(), 0xB8202229.toInt(), Shader.TileMode.CLAMP)
+            top, bottom, Shader.TileMode.CLAMP)
         canvas.drawRect(bounds, paint)
         paint.shader = null
         paint.color = 0x32E3E8F0; paint.style = Paint.Style.STROKE
@@ -226,68 +242,102 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
         super.draw(canvas)
     }
 
-    private class Backdrop(private val root: View) : ViewTreeObserver.OnPreDrawListener {
+    private fun acceptSnapshot(value: Snapshot?) {
+        if (!snapshotState.consume()) return
+        snapshot = value
+        value?.let {
+            val position = IntArray(2).also { getLocationOnScreen(it) }
+            val rootPosition = IntArray(2).also { attachedRoot?.getLocationOnScreen(it) }
+            val left = (rootPosition[0] - position[0]).toFloat()
+            val top = (rootPosition[1] - position[1]).toFloat()
+            // Freeze sampling coordinates too: scrolling/height animation never selects new pixels.
+            snapshotBounds.set(left, top, left + it.rootWidth, top + it.rootHeight)
+        }
+        invalidate()
+    }
+
+    private data class Snapshot(val image: Bitmap, val rootWidth: Int, val rootHeight: Int)
+
+    private class Backdrop(private val root: View) : ViewTreeObserver.OnPreDrawListener, Choreographer.FrameCallback {
         var users = 0
-        var bitmap: Bitmap? = null
-        private var lastCapture = -200L
-        private var disabled = false
-        private val observer = root.viewTreeObserver
-        init { observer.addOnPreDrawListener(this) }
+        private val pending = mutableSetOf<FrostedAnalysisView>()
+        private val frames = AnalysisCardFrameCache<Snapshot>()
+        private var observer: ViewTreeObserver? = null
+        private val choreographer = Choreographer.getInstance()
+        private var frameTimeNanos: Long? = null
+
+        fun request(card: FrostedAnalysisView) {
+            pending.add(card)
+            if (observer?.isAlive != true) {
+                choreographer.removeFrameCallback(this)
+                frameTimeNanos = null
+                observer = root.viewTreeObserver.also { it.addOnPreDrawListener(this) }
+                choreographer.postFrameCallback(this)
+            }
+            root.invalidate()
+        }
+
+        override fun doFrame(frameTimeNanos: Long) {
+            this.frameTimeNanos = frameTimeNanos
+            if (pending.isNotEmpty()) {
+                choreographer.postFrameCallback(this)
+                root.invalidate() // Keep a not-yet-measured first display pending until layout is ready.
+            }
+        }
+
+        fun cancel(card: FrostedAnalysisView) {
+            pending.remove(card)
+            if (pending.isEmpty()) stopListening()
+        }
 
         override fun onPreDraw(): Boolean {
-            val now = SystemClock.uptimeMillis()
-            if (disabled || capturing || users == 0 || now - lastCapture < 180 || root.width == 0 || root.height == 0) return true
-            lastCapture = now
-            try {
-                // One low-resolution capture per host window, shared by all visible cards.
-                val scale = minOf(1f / 12, 160f / root.width, 280f / root.height)
-                val w = (root.width * scale).toInt().coerceAtLeast(1)
-                val h = (root.height * scale).toInt().coerceAtLeast(1)
-                if (bitmap?.width != w || bitmap?.height != h) {
-                    bitmap?.recycle(); bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                }
-                val image = requireNotNull(bitmap)
-                image.eraseColor(Color.TRANSPARENT)
-                val capture = Canvas(image)
-                capture.scale(w.toFloat() / root.width, h.toFloat() / root.height)
-                capturing = true
-                root.draw(capture)
-                soften(image)
-            } catch (_: Exception) {
-                disabled = true
-                bitmap?.recycle(); bitmap = null
-            } finally { capturing = false }
+            if (capturing || root.width == 0 || root.height == 0) return true
+            val ready = pending.filter { it.snapshotState.needsCapture && it.width > 0 && it.height > 0 }
+            if (ready.isEmpty()) return true
+            val frame = frameTimeNanos ?: return true
+            val value = frames.capture(frame) { capture() }
+            ready.forEach { it.acceptSnapshot(value); pending.remove(it) }
+            if (pending.isEmpty()) stopListening() // No capture listener remains while chatting/scrolling.
             return true
         }
 
-        private fun soften(image: Bitmap) {
-            val w = image.width; val h = image.height
-            val pixels = IntArray(w * h)
-            val output = IntArray(pixels.size)
-            image.getPixels(pixels, 0, w, 0, 0, w, h)
-            // Separable five-tap blur on the downsampled image, no RenderEffect on the text/view.
-            for (y in 0 until h) for (x in 0 until w) {
-                var a = 0; var r = 0; var g = 0; var b = 0
-                for (dx in -2..2) {
-                    val c = pixels[y * w + (x + dx).coerceIn(0, w - 1)]
-                    a += Color.alpha(c); r += Color.red(c); g += Color.green(c); b += Color.blue(c)
-                }
-                output[y * w + x] = Color.argb(a / 5, r / 5, g / 5, b / 5)
-            }
-            for (y in 0 until h) for (x in 0 until w) {
-                var a = 0; var r = 0; var g = 0; var b = 0
-                for (dy in -2..2) {
-                    val c = output[(y + dy).coerceIn(0, h - 1) * w + x]
-                    a += Color.alpha(c); r += Color.red(c); g += Color.green(c); b += Color.blue(c)
-                }
-                pixels[y * w + x] = Color.argb(a / 5, r / 5, g / 5, b / 5)
-            }
-            image.setPixels(pixels, 0, w, 0, 0, w, h)
+        private fun capture(): Snapshot? {
+            var image: Bitmap? = null
+            return try {
+                val scale = minOf(1f / AnalysisCardBackdrop.DOWNSAMPLE,
+                    AnalysisCardBackdrop.MAX_WIDTH.toFloat() / root.width,
+                    AnalysisCardBackdrop.MAX_HEIGHT.toFloat() / root.height)
+                val w = (root.width * scale).toInt().coerceAtLeast(1)
+                val h = (root.height * scale).toInt().coerceAtLeast(1)
+                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                image = bitmap
+                bitmap.eraseColor(AnalysisCardBackdrop.opaqueTop)
+                val canvas = Canvas(bitmap)
+                canvas.scale(w.toFloat() / root.width, h.toFloat() / root.height)
+                capturing = true
+                root.draw(canvas)
+                val pixels = IntArray(w * h)
+                bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+                AnalysisCardBackdrop.soften(pixels, w, h)
+                bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+                Snapshot(bitmap, root.width, root.height)
+            } catch (_: Exception) {
+                image?.recycle()
+                null // acceptSnapshot(null) settles this request onto the fully opaque fallback.
+            } finally { capturing = false }
+        }
+
+        private fun stopListening() {
+            choreographer.removeFrameCallback(this)
+            observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(this)
+            observer = null
+            frameTimeNanos = null
         }
 
         fun close() {
-            if (observer.isAlive) observer.removeOnPreDrawListener(this)
-            bitmap?.recycle(); bitmap = null
+            stopListening()
+            pending.clear()
+            // Published images are immutable and may still be held by detached cards; GC owns them.
         }
     }
 

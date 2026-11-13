@@ -1,0 +1,50 @@
+Package: dev.jev.wechatmood (LSPosed)
+Version: 2.7.3 / 67 (verified in signed APK manifest, non-debuggable)
+
+Surface: 0xE62B2D34 -> 0xE6202229; alpha E6 = 230/255 = 90.2%.
+Fallback: 0xFF2B2D34 -> 0xFF202229, plus opaque underlay for transparent host regions.
+Border: 0x32E3E8F0. Radius: 12dp. Existing animation parameters unchanged.
+Blur: downsample <= 1/12, <= 160 x 280; radius 3, seven taps, two horizontal/vertical rounds.
+Snapshot: first display (attach + ENTER coalesced; initial cached DIRECT supported), then only ENTER or explicit reanalysis refresh.
+No timed recapture. Completed snapshots survive scrolling, same-message rebinds and temporary detach/attach.
+Image and sampling coordinates are frozen per card. Same-frame explicit requests share one immutable image.
+Capture listener and frame callback are removed when all pending requests settle, including failures.
+Analysis cards currently have a dark palette only; the separate reply drawer retains both existing themes.
+
+Offline tests: 443 passed, 0 failures, 0 errors, 0 skipped.
+Snapshot state and frame cache: 7 passed, including 1000 scroll/rebind frames with one capture.
+Surface and host wiring: 7 passed, including E0-EF alpha and opaque fallback.
+Blur algorithm: 3 passed, including fine-stroke contrast attenuation in both directions and broad color retention.
+Existing motion and animation wiring: 11 passed; existing content tests: 5 passed.
+Debug and Release builds: BUILD SUCCESSFUL in 2m 22s.
+Live tests excluded by existing Gradle configuration.
+
+Build command:
+export JAVA_HOME=/workspace/jdk-17.0.13+11 ANDROID_HOME=/workspace/android-sdk ANDROID_SDK_ROOT=/workspace/android-sdk GRADLE_USER_HOME=/workspace/.gradle-yanwai
+/workspace/gradle-8.13/bin/gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease --offline --no-daemon --console=plain -Pkotlin.compiler.execution.strategy=in-process -Pandroid.aapt2FromMavenOverride=/workspace/tools/aapt2
+Build log: /workspace/yanwai-frosted-build.log
+Test report: /workspace/yanwai/app/build/reports/tests/testDebugUnitTest/index.html
+No Java/Gradle compilation process remained after completion.
+
+Signing: /workspace/keys/yanwai-release.jks, alias yanwai.
+Passwords read from the existing text file and passed through temporary subprocess environment values; never logged or committed.
+zipalign -p -f 4 before signing, zipalign -c -p 4 after signing: passed.
+apksigner sign: v1/v2/v3 explicitly enabled, v4 disabled.
+Default apksigner verify --verbose --print-certs: Verifies, v3 true.
+The APK has minSdk 28, so default verification uses v3. Explicit v2 verification:
+apksigner verify --verbose --print-certs --min-sdk-version 24: Verifies, v2 true, v3 true.
+The verifier override does not change the APK manifest minSdk.
+
+Signed source: /workspace/yanwai/output/releases/2.7.3/yanwai-2.7.3-frosted-release.apk
+Delivery: /storage/emulated/0/Download/yanwai-2.7.3-frosted-release.apk
+Size: 16081413 bytes (15.34 MiB).
+APK SHA256: fceb61135e36f846af0a4e46a757d5a400181d6c87f1ebe07c4ec142aac1b7dd
+Signed source and delivered APK hashes match.
+
+Certificate DN: CN=Yanwai, OU=local, O=lcsauce, L=NA, ST=NA, C=CN
+Certificate SHA256: b8292dd14f057fbc434f2a0de57b3ffd9f4fe26ce479420396ec5bbf2a92dab5
+Certificate SHA1: 121d16bd8875f1781547b3fc6be4500dc6d68139
+Key: RSA, 2048 bits. SHA256 matches the existing 2.7.1 release certificate record.
+
+No real-device visual test, APK installation or interaction with actual WeChat conversations was performed.
+The previous uncommitted docs/OPAQUE_CARD_2.7.2.md was preserved unchanged and left unstaged.

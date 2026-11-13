@@ -1,0 +1,96 @@
+package dev.jev.wechatmood.hook
+
+import org.junit.Assert.*
+import org.junit.Test
+import java.io.File
+
+/** Source contracts for host-only drawing, which cannot run against the JVM Android stubs. */
+class AnalysisCardSurfaceTest {
+    private fun source(name: String) = File("src/main/java/dev/jev/wechatmood/hook/$name.kt").readText()
+
+    @Test fun `frosted gradient alpha is dense but translucent and keeps the dark palette`() {
+        val colors = AnalysisCardBackdrop.colors(hasSnapshot = true)
+        listOf(colors.first, colors.second).forEach {
+            assertTrue("Frosted alpha must stay in E0-EF", (it ushr 24) in 0xE0..0xEF)
+        }
+        assertEquals(0xE62B2D34.toInt() to 0xE6202229.toInt(), colors)
+    }
+
+    @Test fun `missing or failed snapshot selects the fully opaque fallback`() {
+        val colors = AnalysisCardBackdrop.colors(hasSnapshot = false)
+        assertEquals(0xFF2B2D34.toInt() to 0xFF202229.toInt(), colors)
+        assertEquals(255, colors.first ushr 24)
+        assertEquals(255, colors.second ushr 24)
+    }
+
+    @Test fun `renderer draws cached blur under the tested gradient and rounded border`() {
+        // The surface is drawn in draw(), before onDraw() fades only the text and rings.
+        val draw = source("FrostedAnalysisView").substringAfter("override fun draw(canvas: Canvas)")
+            .substringBefore("private fun acceptSnapshot(")
+        assertTrue(draw.contains("canvas.drawRect(bounds, paint)"))
+        assertTrue(draw.contains("AnalysisCardBackdrop.colors(hasSnapshot = image != null)"))
+        assertTrue(draw.contains("top, bottom, Shader.TileMode.CLAMP"))
+        assertTrue(draw.indexOf("canvas.drawColor(AnalysisCardBackdrop.opaqueTop)") < draw.indexOf("canvas.drawBitmap("))
+        assertTrue(draw.indexOf("canvas.drawBitmap(") < draw.indexOf("paint.shader = LinearGradient("))
+        assertTrue(draw.contains("clip.addRoundRect(bounds, radius, radius, Path.Direction.CW)"))
+        assertTrue(draw.contains("paint.color = 0x32E3E8F0"))
+    }
+
+    @Test fun `every gradient fill resets alpha left by the translucent border`() {
+        val draw = source("FrostedAnalysisView").substringAfter("override fun draw(canvas: Canvas)")
+        val reset = draw.indexOf("paint.alpha = 255")
+        val gradient = draw.indexOf("paint.shader = LinearGradient(")
+        val fill = draw.indexOf("canvas.drawRect(bounds, paint)")
+        val border = draw.indexOf("paint.color = 0x32E3E8F0")
+        assertTrue("Each draw must reset the shared paint before the gradient fill",
+            reset >= 0 && gradient > reset && fill > gradient && border > fill)
+    }
+
+    @Test fun `snapshot capture and coordinates are excluded from routine drawing`() {
+        val view = source("FrostedAnalysisView")
+        val draw = view.substringAfter("override fun draw(canvas: Canvas)").substringBefore("private fun acceptSnapshot(")
+        assertTrue(draw.contains("if (capturing) return"))
+        assertTrue(draw.contains("canvas.drawBitmap(it, null, snapshotBounds, paint)"))
+        listOf("getLocationOnScreen", "request(", "capture(", "root.draw(").forEach { assertFalse(draw.contains(it)) }
+        val preDraw = view.substringAfter("override fun onPreDraw()").substringBefore("private fun capture()")
+        assertTrue(preDraw.contains("it.snapshotState.needsCapture"))
+        assertTrue(preDraw.contains("if (ready.isEmpty()) return true"))
+        assertTrue(preDraw.contains("if (pending.isEmpty()) stopListening()"))
+        assertTrue(view.contains("override fun doFrame(frameTimeNanos: Long)"))
+        assertTrue(view.contains("choreographer.removeFrameCallback(this)"))
+        assertFalse(view.contains("SystemClock"))
+        assertFalse(view.contains("now - lastCapture"))
+        assertFalse(view.contains("RenderEffect"))
+        assertTrue(view.contains("AnalysisCardBackdrop.soften(pixels, w, h)"))
+        val retry = source("BubbleDecorator").substringAfter("setOnClickListener {").substringBefore("var branch:")
+        assertTrue(retry.indexOf("refreshBackdrop()") < retry.indexOf("SignalAnalyzer.reanalyze(message)"))
+        val menu = source("MessageSniffer").substringAfter("fun analyzeMessage(").substringBefore("fun replyTargetForView(")
+        assertTrue(menu.contains("if (force) {"))
+        assertTrue(menu.contains("BubbleDecorator.refreshBackdrop(input.key)"))
+    }
+
+    @Test fun `entrance and cancellation settle at full view alpha`() {
+        val view = source("FrostedAnalysisView")
+        val layout = view.substringAfter("override fun onLayout(").substringBefore("override fun onDraw(")
+        assertTrue(layout.contains("animate().alpha(1f)"))
+        val finish = view.substringAfter("fun finishAnimations()").substringBefore("fun close(")
+        assertTrue(finish.contains("alpha = 1f"))
+        assertTrue(finish.contains("contentAlpha = 1f"))
+        val draw = view.substringAfter("override fun draw(canvas: Canvas)").substringBefore("private fun acceptSnapshot(")
+        assertFalse(draw.contains("saveLayerAlpha"))
+        assertFalse(draw.contains("contentAlpha"))
+    }
+
+    @Test fun `reply card and loading surfaces are opaque in both themes`() {
+        val theme = source("ReplyTheme")
+        listOf("surface", "card", "soft").forEach { name ->
+            val palette = Regex("val $name = color\\(\"(#[0-9A-Fa-f]+)\", \"(#[0-9A-Fa-f]+)\"\\)").find(theme)
+            assertNotNull("Missing $name theme colors", palette)
+            requireNotNull(palette).groupValues.drop(1).forEach { color ->
+                val argb = if (color.length == 7) 0xFF000000L or color.drop(1).toLong(16)
+                    else color.drop(1).toLong(16)
+                assertEquals("$name must be opaque: $color", 0xFFL, argb ushr 24)
+            }
+        }
+    }
+}

@@ -246,7 +246,10 @@ object MessageSniffer {
         val input = inputForView(view) ?: return false
         val identity = ManualAnalysis.identity(input) ?: return false
         if (identity != ManualAnalysis.identity(expected) || !ModulePrefs.selectMessage(input)) return false
-        if (force) SignalAnalyzer.reanalyze(ModulePrefs.analysisInput(input))
+        if (force) {
+            BubbleDecorator.refreshBackdrop(input.key)
+            SignalAnalyzer.reanalyze(ModulePrefs.analysisInput(input))
+        }
         refresh()
         return true
     }
