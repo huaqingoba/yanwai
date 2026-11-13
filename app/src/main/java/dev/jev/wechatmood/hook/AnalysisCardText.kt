@@ -3,7 +3,9 @@ package dev.jev.wechatmood.hook
 import android.graphics.Typeface
 import android.text.SpannableStringBuilder
 import android.text.Spanned
-import android.text.style.ForegroundColorSpan
+import android.text.TextPaint
+import android.text.style.CharacterStyle
+import android.text.style.UpdateAppearance
 import android.text.style.StyleSpan
 import dev.jev.wechatmood.core.Mood
 import dev.jev.wechatmood.core.EmotionIndicator
@@ -45,10 +47,17 @@ object AnalysisCardText {
             }
             line.label?.let { label ->
                 text.setSpan(StyleSpan(Typeface.BOLD), lineStart, lineStart + label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                text.setSpan(ForegroundColorSpan(if (dark) 0xFFB2E3D5.toInt() else 0xFF20685C.toInt()), lineStart, lineStart + label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                text.setSpan(AnalysisCardLabelSpan(dark), lineStart, lineStart + label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
         }
         return text
     }
 
+}
+
+/** Recolor mounted labels without rebinding content or restarting its animations. */
+internal class AnalysisCardLabelSpan(var dark: Boolean) : CharacterStyle(), UpdateAppearance {
+    override fun updateDrawState(paint: TextPaint) {
+        paint.color = if (dark) 0xFFB2E3D5.toInt() else 0xFF20685C.toInt()
+    }
 }

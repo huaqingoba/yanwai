@@ -1,6 +1,7 @@
 package dev.jev.wechatmood.hook
 
 import dev.jev.wechatmood.core.CardOpacity
+import dev.jev.wechatmood.core.CardPalette
 
 /** Android-free surface and snapshot policy, shared by the host renderer and offline tests. */
 internal object AnalysisCardBackdrop {
@@ -11,11 +12,12 @@ internal object AnalysisCardBackdrop {
     const val DOWNSAMPLE = 12
     const val MAX_WIDTH = 160
     const val MAX_HEIGHT = 280
+    const val FALLBACK_OPACITY = 92
 
     fun colors(hasSnapshot: Boolean, opacity: Int = CardOpacity.DEFAULT, dark: Boolean = true): Pair<Int, Int> {
-        val alpha = if (hasSnapshot) CardOpacity.alpha(opacity) else 255
-        val top = if (dark) 0x2B2D34 else 0xFFFFFF
-        val bottom = if (dark) 0x202229 else 0xF3F4F6
+        val alpha = CardOpacity.alpha(if (hasSnapshot) opacity else FALLBACK_OPACITY)
+        val top = if (dark) 0x2B2D34 else 0xEEF1F5
+        val bottom = if (dark) 0x202229 else 0xE3E7ED
         return ((alpha shl 24) or top) to ((alpha shl 24) or bottom)
     }
 
@@ -53,11 +55,19 @@ internal class AnalysisCardSurfaceState {
     val snapshotState = AnalysisCardSnapshotState()
     var opacity = CardOpacity.DEFAULT
         private set
+    var palette = CardPalette.DEFAULT
+        private set
 
     fun updateOpacity(value: Int): Boolean {
         val next = CardOpacity.normalize(value)
         if (next == opacity) return false
         opacity = next
+        return true
+    }
+
+    fun updatePalette(value: CardPalette): Boolean {
+        if (value == palette) return false
+        palette = value
         return true
     }
 }

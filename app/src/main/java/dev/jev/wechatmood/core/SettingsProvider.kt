@@ -85,6 +85,7 @@ class SettingsProvider : ContentProvider() {
                 putBoolean(ModulePrefs.KEY_EXPLORE, prefs.getBoolean(ModulePrefs.KEY_EXPLORE, false))
                 CardDisplaySettings.KEYS.forEach { putBoolean(it, prefs.getBoolean(it, true)) }
                 putInt(CardOpacity.KEY, CardOpacity.load { prefs.all[it] })
+                putString(CardPalette.KEY, CardPalette.load { prefs.all[it] }.id)
                 putString(ModulePrefs.KEY_API_BASE, prefs.getString(ModulePrefs.KEY_API_BASE, ApiSettings.DEFAULT_ENDPOINT))
                 putString(ModulePrefs.KEY_API_KEY, prefs.getString(ModulePrefs.KEY_API_KEY, ""))
                 putString(ModulePrefs.KEY_API_PROVIDER, prefs.getString(ModulePrefs.KEY_API_PROVIDER, null))
@@ -110,8 +111,15 @@ class SettingsProvider : ContentProvider() {
         }
 
         fun publish(context: Context) {
+            val config = runCatching { snapshot(context) }.getOrElse {
+                MoodLog.e("SYNC_PUBLISH_FAILED 设置已落盘但同步失败", it)
+                return
+            }
+            // Apply local saves through the same session callback, without waiting for Provider I/O.
+            runCatching { ModulePrefs.applyLocalSettings(config) }
+                .onFailure { MoodLog.e("LOCAL_SETTINGS_APPLY_FAILED", it) }
             // A transport failure must not misreport a successful disk write as a failed save.
-            runCatching { SettingsSync.publish(context, snapshot(context)) }
+            runCatching { SettingsSync.publish(context, config) }
                 .onFailure { MoodLog.e("SYNC_PUBLISH_FAILED 设置已落盘但同步失败", it) }
         }
     }

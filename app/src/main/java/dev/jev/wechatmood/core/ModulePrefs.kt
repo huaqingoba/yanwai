@@ -23,7 +23,8 @@ object ModulePrefs {
         onCardOpacityChanged = {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 dev.jev.wechatmood.hook.BubbleDecorator.updateOpacity(
-                    session.current?.cardOpacity ?: CardOpacity.DEFAULT)
+                    session.current?.cardOpacity ?: CardOpacity.DEFAULT,
+                    session.current?.cardPalette ?: CardPalette.DEFAULT)
             }
         }
     }
@@ -76,6 +77,10 @@ object ModulePrefs {
         MoodLog.protect(snapshot.reply.apiKey)
         MoodLog.protect(snapshot.intent.llm.apiKey)
         MoodLog.i("SYNC_RECEIVED revision=${snapshot.revision}；广播送达不代表设置服务可访问")
+    }
+    fun applyLocalSettings(bundle: Bundle) {
+        if (context?.packageName != "dev.jev.wechatmood") return
+        SettingsSync.decode(bundle)?.let(bridge::receive)
     }
     fun requestReload(force: Boolean = false) = bridge.requestReload(force)
     fun reload(force: Boolean = false) = bridge.reload(force)

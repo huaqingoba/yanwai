@@ -22,6 +22,7 @@ import dev.jev.wechatmood.analysis.JevHttpClient
 import dev.jev.wechatmood.core.ModulePrefs
 import dev.jev.wechatmood.core.ApiSettings
 import dev.jev.wechatmood.core.CardOpacity
+import dev.jev.wechatmood.core.CardPalette
 import dev.jev.wechatmood.core.ApiProfiles
 import dev.jev.wechatmood.core.JevProvider
 import dev.jev.wechatmood.core.MoodLog
@@ -460,6 +461,8 @@ class MainActivity : AppCompatActivity() {
             ViewCompat.setStateDescription(binding.cardOpacity, "$value%")
         }
         binding.cardOpacity.keyProgressIncrement = 1
+        binding.cardOpacity.min = CardOpacity.MIN
+        binding.cardOpacity.max = CardOpacity.MAX
         binding.cardOpacity.progress = CardOpacity.load { prefs.all[it] }
         showOpacity(binding.cardOpacity.progress)
         binding.cardOpacity.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -467,7 +470,7 @@ class MainActivity : AppCompatActivity() {
                 showOpacity(progress)
                 if (!fromUser) return
                 val saved = SettingsProvider.save(this@MainActivity) { putInt(CardOpacity.KEY, CardOpacity.normalize(progress)) }
-                if (saved) ModulePrefs.requestReload(force = true) else {
+                if (!saved) {
                     seekBar.progress = CardOpacity.load { prefs.all[it] }
                     showOpacity(seekBar.progress)
                 }
@@ -478,6 +481,16 @@ class MainActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
         })
+        binding.cardPalette.setSimpleItems(CardPalette.entries.map { it.label }.toTypedArray())
+        binding.cardPalette.setText(CardPalette.load { prefs.all[it] }.label, false)
+        binding.cardPalette.setOnItemClickListener { _, _, position, _ ->
+            val palette = CardPalette.entries[position]
+            val saved = SettingsProvider.save(this) { putString(CardPalette.KEY, palette.id) }
+            if (!saved) binding.cardPalette.setText(CardPalette.load { prefs.all[it] }.label, false)
+            SettingsStatus.show(binding.cardPaletteStatus,
+                if (saved) "已保存，聊天卡片已更新。" else "保存失败，请重试。",
+                if (saved) R.color.status_success else R.color.status_error)
+        }
         listOf(binding.showIntent to dev.jev.wechatmood.core.CardDisplaySettings.KEY_INTENT,
             binding.showConcern to dev.jev.wechatmood.core.CardDisplaySettings.KEY_CONCERN,
             binding.showTone to dev.jev.wechatmood.core.CardDisplaySettings.KEY_TONE).forEach { (toggle, key) ->

@@ -10,6 +10,7 @@ import dev.jev.wechatmood.core.MoodLog
 import dev.jev.wechatmood.core.MoodStore
 import dev.jev.wechatmood.core.AnalysisInput
 import dev.jev.wechatmood.core.Mood
+import dev.jev.wechatmood.core.CardPalette
 import java.util.IdentityHashMap
 
 /** Append a sibling below the real text bubble, without replacing a host row or ViewHolder. */
@@ -50,7 +51,9 @@ object BubbleDecorator {
             cards[row] = state
         }
         restoreVisibility(state)
-        state.view.updateOpacity(ModulePrefs.analysisSettings()?.cardOpacity ?: dev.jev.wechatmood.core.CardOpacity.DEFAULT)
+        val settings = ModulePrefs.analysisSettings()
+        state.view.updateOpacity(settings?.cardOpacity ?: dev.jev.wechatmood.core.CardOpacity.DEFAULT,
+            settings?.cardPalette ?: CardPalette.DEFAULT)
         state.message = message
         val status = SignalAnalyzer.failure(key)?.let { "分析失败：$it\n点击此卡重试" }
             ?: if (ModulePrefs.canAnalyze(message))
@@ -180,8 +183,8 @@ object BubbleDecorator {
     }
 
     /** Settings pushes redraw attached cards immediately, without binding content or taking a frame. */
-    fun updateOpacity(opacity: Int) {
-        cards.values.forEach { it.view.updateOpacity(opacity) }
+    fun updateOpacity(opacity: Int, palette: CardPalette = CardPalette.DEFAULT) {
+        cards.values.forEach { it.view.updateOpacity(opacity, palette) }
     }
 
     /** Hide stale data only for the synchronous host bind; same-message binding retains its root. */

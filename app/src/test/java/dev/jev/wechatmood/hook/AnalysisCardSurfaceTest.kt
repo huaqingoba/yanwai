@@ -8,18 +8,31 @@ import java.io.File
 class AnalysisCardSurfaceTest {
     private fun source(name: String) = File("src/main/java/dev/jev/wechatmood/hook/$name.kt").readText()
 
-    @Test fun `default frosted gradient is 96 percent in both themes`() {
+    @Test fun `default frosted gradient is 88 percent and light never uses pure white`() {
         val colors = AnalysisCardBackdrop.colors(hasSnapshot = true)
-        assertEquals(0xF52B2D34.toInt() to 0xF5202229.toInt(), colors)
-        assertEquals(0xF5FFFFFF.toInt() to 0xF5F3F4F6.toInt(),
+        assertEquals(0xE02B2D34.toInt() to 0xE0202229.toInt(), colors)
+        assertEquals(0xE0EEF1F5.toInt() to 0xE0E3E7ED.toInt(),
             AnalysisCardBackdrop.colors(hasSnapshot = true, dark = false))
+        for (dark in listOf(false, true)) for (opacity in 60..100) {
+            val (top, bottom) = AnalysisCardBackdrop.colors(true, opacity, dark)
+            assertNotEquals(0xFFFFFF, top and 0xFFFFFF)
+            assertNotEquals(0xFFFFFF, bottom and 0xFFFFFF)
+        }
     }
 
-    @Test fun `missing or failed snapshot selects the fully opaque fallback`() {
-        val colors = AnalysisCardBackdrop.colors(hasSnapshot = false)
-        assertEquals(0xFF2B2D34.toInt() to 0xFF202229.toInt(), colors)
-        assertEquals(255, colors.first ushr 24)
-        assertEquals(255, colors.second ushr 24)
+    @Test fun `missing or failed snapshot selects the 92 percent palette fallback at every slider value`() {
+        assertEquals(92, AnalysisCardBackdrop.FALLBACK_OPACITY)
+        for (opacity in 60..100) {
+            assertEquals(0xEB2B2D34.toInt() to 0xEB202229.toInt(),
+                AnalysisCardBackdrop.colors(false, opacity, dark = true))
+            assertEquals(0xEBEEF1F5.toInt() to 0xEBE3E7ED.toInt(),
+                AnalysisCardBackdrop.colors(false, opacity, dark = false))
+        }
+        val view = source("FrostedAnalysisView")
+        val capture = view.substringAfter("private fun capture(): Snapshot?").substringBefore("private fun stopListening()")
+        assertTrue(capture.contains("MoodLog.e(\"CARD_SNAPSHOT_FAILED"))
+        assertFalse(capture.contains("setText"))
+        assertFalse(capture.contains("Toast"))
     }
 
     @Test fun `renderer draws cached blur under the tested gradient and rounded border`() {

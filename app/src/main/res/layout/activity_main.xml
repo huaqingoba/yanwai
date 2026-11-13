@@ -123,8 +123,12 @@
                 <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/showTone" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="显示情绪倾向" android:saveEnabled="false" />
                 <TextView android:id="@+id/cardDisplayStatus" style="@style/Yanwai.Caption" android:text="切换立即保存，不重新分析。" android:accessibilityLiveRegion="polite" />
                 <TextView style="@style/Yanwai.Caption" android:layout_marginTop="8dp" android:text="只影响智能分析的三项解读；情绪指标和失败提示始终保留。" />
-                <TextView android:id="@+id/cardOpacityValue" style="@style/Yanwai.Body" android:layout_marginTop="16dp" android:text="卡片不透明度：96%" android:labelFor="@id/cardOpacity" />
-                <SeekBar android:id="@+id/cardOpacity" android:layout_width="match_parent" android:layout_height="48dp" android:min="85" android:max="100" android:progress="96" android:contentDescription="卡片不透明度" android:saveEnabled="false" />
+                <com.google.android.material.textfield.TextInputLayout style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:hint="卡片配色">
+                    <com.google.android.material.textfield.MaterialAutoCompleteTextView android:id="@+id/cardPalette" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp" android:inputType="none" android:saveEnabled="false" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <TextView android:id="@+id/cardPaletteStatus" style="@style/Yanwai.Caption" android:text="默认深色，选择后立即保存并预览。" android:accessibilityLiveRegion="polite" />
+                <TextView android:id="@+id/cardOpacityValue" style="@style/Yanwai.Body" android:layout_marginTop="16dp" android:text="卡片不透明度：88%" android:labelFor="@id/cardOpacity" />
+                <SeekBar android:id="@+id/cardOpacity" android:layout_width="match_parent" android:layout_height="48dp" android:min="60" android:max="100" android:progress="88" android:contentDescription="卡片不透明度" android:saveEnabled="false" />
                 <TextView style="@style/Yanwai.Caption" android:text="越高越不透，100% 为纯色" />
                 <TextView android:id="@+id/cardOpacityStatus" style="@style/Yanwai.Caption" android:text="拖动立即保存并预览。" android:accessibilityLiveRegion="polite" />
                 <TextView style="@style/Yanwai.Section" android:layout_marginTop="24dp" android:text="遇到问题" />

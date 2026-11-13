@@ -8,7 +8,8 @@ class RuntimeSettings(val revision: Long,
     val intent: IntentSettings = IntentSettings(),
     val cardDisplay: CardDisplaySettings = CardDisplaySettings(),
     val emotion: EmotionSettings = EmotionSettings(), val rolesRevision: Long = 0,
-    cardOpacity: Int = CardOpacity.DEFAULT) {
+    cardOpacity: Int = CardOpacity.DEFAULT,
+    val cardPalette: CardPalette = CardPalette.DEFAULT) {
     val cardOpacity = CardOpacity.normalize(cardOpacity)
     val emotionLlm get() = if (emotion.reuseReply) reply else intent.llm
     val canGenerateReply get() = reply.isConfigured
@@ -62,7 +63,8 @@ class SettingsSession(private val onAnalysisChanged: () -> Unit = {}) {
         retiredGenerations.remove(snapshot.generation)
         if (snapshot.rolesRevision < (current?.rolesRevision ?: 0L)) return true
         if (snapshot.revision >= (current?.revision ?: -1L)) {
-            val opacityChanged = current?.cardOpacity != snapshot.cardOpacity
+            val appearanceChanged = current?.cardOpacity != snapshot.cardOpacity ||
+                current?.cardPalette != snapshot.cardPalette
             if (current?.sameAnalysis(snapshot) != true) {
                 // Block new submissions while revoking old jobs and their ownership.
                 current = null
@@ -70,7 +72,7 @@ class SettingsSession(private val onAnalysisChanged: () -> Unit = {}) {
                 MoodStore.clear()
             }
             current = snapshot
-            if (opacityChanged) onCardOpacityChanged()
+            if (appearanceChanged) onCardOpacityChanged()
         }
         return true
     }

@@ -55,6 +55,7 @@ object SettingsSync {
             IntentSettings.load { bundle.getString(it) },
             CardDisplaySettings.load { bundle.getBoolean(it, true) }, emotion,
             bundle.getLong(ReplyIdentityProvider.KEY_ROLE_REVISION, 0),
-            CardOpacity.load { bundle.getInt(it, CardOpacity.DEFAULT) })
+            CardOpacity.load { bundle.getInt(it, CardOpacity.DEFAULT) },
+            CardPalette.load { bundle.getString(it) })
     }.getOrNull()
 }

@@ -71,13 +71,29 @@ class SettingsLayoutTest {
         val nodes = elements("activity_main")
         val slider = nodes.single { it.getAttribute("android:id") == "@+id/cardOpacity" }
         assertEquals("SeekBar", slider.tagName)
-        assertEquals("85", slider.getAttribute("android:min"))
+        assertEquals("60", slider.getAttribute("android:min"))
         assertEquals("100", slider.getAttribute("android:max"))
-        assertEquals("96", slider.getAttribute("android:progress"))
+        assertEquals("88", slider.getAttribute("android:progress"))
         assertEquals("false", slider.getAttribute("android:saveEnabled"))
         assertEquals("@+id/aboutPanel", (slider.parentNode as Element).getAttribute("android:id"))
         assertTrue(nodes.any { it.getAttribute("android:text") == "越高越不透，100% 为纯色" })
         assertTrue(File("src/main/java/dev/jev/wechatmood/MainActivity.kt").readText()
             .contains("binding.cardOpacity.keyProgressIncrement = 1"))
+    }
+
+    @Test fun cardPaletteUsesAnAccessibleNonEditableDropdownAndSavesImmediately() {
+        val nodes = elements("activity_main")
+        val field = nodes.single { it.getAttribute("android:id") == "@+id/cardPalette" }
+        assertEquals("none", field.getAttribute("android:inputType"))
+        assertEquals("false", field.getAttribute("android:saveEnabled"))
+        assertEquals("56dp", field.getAttribute("android:minHeight"))
+        assertEquals("卡片配色", (field.parentNode as Element).getAttribute("android:hint"))
+        val activity = File("src/main/java/dev/jev/wechatmood/MainActivity.kt").readText()
+        assertTrue(activity.contains("binding.cardPalette.setOnItemClickListener"))
+        assertTrue(activity.contains("putString(CardPalette.KEY, palette.id)"))
+        val provider = File("src/main/java/dev/jev/wechatmood/core/SettingsProvider.kt").readText()
+        assertTrue(provider.contains("putString(CardPalette.KEY, CardPalette.load { prefs.all[it] }.id)"))
+        assertTrue(File("src/main/java/dev/jev/wechatmood/core/SettingsSync.kt").readText()
+            .contains("CardPalette.load { bundle.getString(it) }"))
     }
 }

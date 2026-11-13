@@ -14,6 +14,8 @@ import android.view.ViewTreeObserver
 import android.view.animation.DecelerateInterpolator
 import android.widget.TextView
 import java.util.WeakHashMap
+import dev.jev.wechatmood.core.CardPalette
+import dev.jev.wechatmood.core.MoodLog
 
 /** Static blurred backdrop with a dense tint; content fades independently of the surface. */
 // Injected into WeChat with its host context; module AppCompat themes/resources are not available.
@@ -25,7 +27,8 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
     private val snapshotBounds = RectF()
     private val surface = AnalysisCardSurfaceState()
     private val snapshotState = surface.snapshotState
-    private val dark get() = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+    private val dark get() = surface.palette.isDark(
+        resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES)
     private var snapshot: Snapshot? = null
     private var backdrop: Backdrop? = null
     private var attachedRoot: View? = null
@@ -44,8 +47,23 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
 
     init { setTextColor(if (dark) 0xFFF0F1F5.toInt() else 0xFF202229.toInt()) }
 
-    fun updateOpacity(opacity: Int) {
-        if (surface.updateOpacity(opacity)) invalidate()
+    fun updateOpacity(opacity: Int, palette: CardPalette = surface.palette) {
+        val opacityChanged = surface.updateOpacity(opacity)
+        val paletteChanged = surface.updatePalette(palette)
+        if (paletteChanged) updateTextPalette()
+        if (opacityChanged || paletteChanged) invalidate()
+    }
+
+    private fun updateTextPalette() {
+        setTextColor(if (dark) 0xFFF0F1F5.toInt() else 0xFF202229.toInt())
+        (text as? Spanned)?.getSpans(0, text.length, AnalysisCardLabelSpan::class.java)
+            ?.forEach { it.dark = dark }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateTextPalette()
+        invalidate()
     }
 
     private fun curve() = when (AnalysisCardMotion.curve) {
@@ -233,7 +251,7 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
         // Even transparent/unsupported host regions must never expose live, unblurred chat text.
         val image = snapshot?.image?.takeUnless { it.isRecycled }
         if (AnalysisCardBackdrop.drawsBackdrop(hasSnapshot = image != null, opacity = surface.opacity)) {
-            canvas.drawColor(AnalysisCardBackdrop.colors(hasSnapshot = false, dark = dark).first)
+            canvas.drawColor(AnalysisCardBackdrop.colors(hasSnapshot = true, opacity = 100, dark = dark).first)
             paint.color = Color.WHITE
             canvas.drawBitmap(requireNotNull(image), null, snapshotBounds, paint)
         }
@@ -330,9 +348,10 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
                 AnalysisCardBackdrop.soften(pixels, w, h)
                 bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
                 Snapshot(bitmap, root.width, root.height)
-            } catch (_: Exception) {
+            } catch (error: Exception) {
                 image?.recycle()
-                null // acceptSnapshot(null) settles this request onto the fully opaque fallback.
+                MoodLog.e("CARD_SNAPSHOT_FAILED 使用配色回退", error)
+                null // Settle once onto the 92% palette gradient; no content-area message.
             } finally { capturing = false }
         }
 
