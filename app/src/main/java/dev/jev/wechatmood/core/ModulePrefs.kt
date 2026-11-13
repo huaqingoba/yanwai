@@ -22,9 +22,10 @@ object ModulePrefs {
     }.apply {
         onCardOpacityChanged = {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
+                val settings = analysisSettings()
                 dev.jev.wechatmood.hook.BubbleDecorator.updateOpacity(
-                    session.current?.cardOpacity ?: CardOpacity.DEFAULT,
-                    session.current?.cardPalette ?: CardPalette.DEFAULT)
+                    settings?.cardOpacity ?: CardOpacity.DEFAULT,
+                    settings?.cardPalette ?: CardPalette.DEFAULT)
             }
         }
     }

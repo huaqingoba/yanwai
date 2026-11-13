@@ -20,12 +20,11 @@ class AnalysisCardSurfaceTest {
         }
     }
 
-    @Test fun `missing or failed snapshot selects the 92 percent palette fallback at every slider value`() {
-        assertEquals(92, AnalysisCardBackdrop.FALLBACK_OPACITY)
+    @Test fun `missing or failed snapshot selects an opaque palette fallback at every slider value`() {
         for (opacity in 60..100) {
-            assertEquals(0xEB2B2D34.toInt() to 0xEB202229.toInt(),
+            assertEquals(0xFF2B2D34.toInt() to 0xFF202229.toInt(),
                 AnalysisCardBackdrop.colors(false, opacity, dark = true))
-            assertEquals(0xEBEEF1F5.toInt() to 0xEBE3E7ED.toInt(),
+            assertEquals(0xFFEEF1F5.toInt() to 0xFFE3E7ED.toInt(),
                 AnalysisCardBackdrop.colors(false, opacity, dark = false))
         }
         val view = source("FrostedAnalysisView")
@@ -40,10 +39,16 @@ class AnalysisCardSurfaceTest {
         val draw = source("FrostedAnalysisView").substringAfter("override fun draw(canvas: Canvas)")
             .substringBefore("private fun acceptSnapshot(")
         assertTrue(draw.contains("canvas.drawRect(bounds, paint)"))
-        assertTrue(draw.contains("AnalysisCardBackdrop.colors(hasSnapshot = image != null, opacity = surface.opacity, dark = dark)"))
+        assertTrue(draw.contains("AnalysisCardBackdrop.colors(hasSnapshot = crop != null, opacity = surface.opacity, dark = dark)"))
         assertTrue(draw.contains("top, bottom, Shader.TileMode.CLAMP"))
-        assertTrue(draw.indexOf("canvas.drawColor(") < draw.indexOf("canvas.drawBitmap("))
+        assertFalse(draw.contains("drawColor("))
+        assertTrue(draw.indexOf("canvas.clipPath(clip)") < draw.indexOf("canvas.drawBitmap("))
         assertTrue(draw.indexOf("canvas.drawBitmap(") < draw.indexOf("paint.shader = LinearGradient("))
+        assertEquals(1, Regex("canvas\\.drawRect\\(").findAll(draw).count())
+        assertTrue(draw.indexOf("canvas.drawRect(bounds, paint)") < draw.indexOf("bounds.inset("))
+        assertTrue(draw.indexOf("bounds.inset(") < draw.indexOf("canvas.drawRoundRect("))
+        assertTrue(draw.contains("bounds.set(0f, 0f, width.toFloat(), height.toFloat().coerceAtLeast(1f))"))
+        assertTrue(draw.contains("LinearGradient(0f, 0f, 0f, bounds.height(),"))
         assertTrue(draw.contains("clip.addRoundRect(bounds, radius, radius, Path.Direction.CW)"))
         assertTrue(draw.contains("paint.color = if (dark) 0x32E3E8F0 else 0x322B2D34"))
     }
@@ -58,11 +63,14 @@ class AnalysisCardSurfaceTest {
             reset >= 0 && gradient > reset && fill > gradient && border > fill)
     }
 
-    @Test fun `snapshot capture and coordinates are excluded from routine drawing`() {
+    @Test fun `snapshot capture is excluded from routine drawing and center crop uses one scale`() {
         val view = source("FrostedAnalysisView")
         val draw = view.substringAfter("override fun draw(canvas: Canvas)").substringBefore("private fun acceptSnapshot(")
         assertTrue(draw.contains("if (capturing) return"))
-        assertTrue(draw.contains("canvas.drawBitmap(requireNotNull(image), null, snapshotBounds, paint)"))
+        assertTrue(draw.contains("canvas.drawBitmap(requireNotNull(image), snapshotMatrix, paint)"))
+        assertTrue(draw.contains("snapshotMatrix.setScale(transform.scale, transform.scale)"))
+        assertTrue(draw.contains("snapshotMatrix.postTranslate(transform.translateX, transform.translateY)"))
+        assertTrue(draw.contains("AnalysisCardBackdrop.centerCrop(it.width, it.height, bounds.width(), bounds.height())"))
         listOf("getLocationOnScreen", "request(", "capture(", "root.draw(").forEach { assertFalse(draw.contains(it)) }
         val preDraw = view.substringAfter("override fun onPreDraw()").substringBefore("private fun capture()")
         assertTrue(preDraw.contains("it.snapshotState.needsCapture"))

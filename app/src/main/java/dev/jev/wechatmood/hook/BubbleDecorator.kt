@@ -184,7 +184,11 @@ object BubbleDecorator {
 
     /** Settings pushes redraw attached cards immediately, without binding content or taking a frame. */
     fun updateOpacity(opacity: Int, palette: CardPalette = CardPalette.DEFAULT) {
-        cards.values.forEach { it.view.updateOpacity(opacity, palette) }
+        cards.values.forEach {
+            it.view.updateOpacity(opacity, palette)
+            // A draw may already have read the shared settings before this posted callback runs.
+            it.view.invalidate()
+        }
     }
 
     /** Hide stale data only for the synchronous host bind; same-message binding retains its root. */

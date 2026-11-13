@@ -16,6 +16,7 @@ import android.widget.TextView
 import java.util.WeakHashMap
 import dev.jev.wechatmood.core.CardPalette
 import dev.jev.wechatmood.core.MoodLog
+import dev.jev.wechatmood.core.ModulePrefs
 
 /** Static blurred backdrop with a dense tint; content fades independently of the surface. */
 // Injected into WeChat with its host context; module AppCompat themes/resources are not available.
@@ -24,7 +25,7 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val bounds = RectF()
     private val clip = Path()
-    private val snapshotBounds = RectF()
+    private val snapshotMatrix = Matrix()
     private val surface = AnalysisCardSurfaceState()
     private val snapshotState = surface.snapshotState
     private val dark get() = surface.palette.isDark(
@@ -242,21 +243,26 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
 
     override fun draw(canvas: Canvas) {
         if (capturing) return // Exclude all analysis surfaces AND their text from the host snapshot.
+        if (surface.readSettings(ModulePrefs.analysisSettings())) updateTextPalette()
         val checkpoint = canvas.save()
-        bounds.set(0f, 0f, width.toFloat(), height.toFloat())
+        bounds.set(0f, 0f, width.toFloat(), height.toFloat().coerceAtLeast(1f))
         clip.reset(); clip.addRoundRect(bounds, radius, radius, Path.Direction.CW)
         canvas.clipPath(clip)
         paint.style = Paint.Style.FILL
         paint.alpha = 255 // Reset the translucent stroke alpha left by the previous frame.
-        // Even transparent/unsupported host regions must never expose live, unblurred chat text.
+        paint.shader = null
         val image = snapshot?.image?.takeUnless { it.isRecycled }
-        if (AnalysisCardBackdrop.drawsBackdrop(hasSnapshot = image != null, opacity = surface.opacity)) {
-            canvas.drawColor(AnalysisCardBackdrop.colors(hasSnapshot = true, opacity = 100, dark = dark).first)
+        val crop = image?.let { AnalysisCardBackdrop.centerCrop(it.width, it.height, bounds.width(), bounds.height()) }
+        if (AnalysisCardBackdrop.drawsBackdrop(hasSnapshot = crop != null, opacity = surface.opacity)) {
+            val transform = requireNotNull(crop)
+            snapshotMatrix.setScale(transform.scale, transform.scale)
+            snapshotMatrix.postTranslate(transform.translateX, transform.translateY)
             paint.color = Color.WHITE
-            canvas.drawBitmap(requireNotNull(image), null, snapshotBounds, paint)
+            canvas.drawBitmap(requireNotNull(image), snapshotMatrix, paint)
         }
-        val (top, bottom) = AnalysisCardBackdrop.colors(hasSnapshot = image != null, opacity = surface.opacity, dark = dark)
-        paint.shader = LinearGradient(0f, 0f, 0f, height.toFloat().coerceAtLeast(1f),
+        // One full-card gradient: missing snapshots and 100% opacity use the opaque palette.
+        val (top, bottom) = AnalysisCardBackdrop.colors(hasSnapshot = crop != null, opacity = surface.opacity, dark = dark)
+        paint.shader = LinearGradient(0f, 0f, 0f, bounds.height(),
             top, bottom, Shader.TileMode.CLAMP)
         canvas.drawRect(bounds, paint)
         paint.shader = null
@@ -272,14 +278,6 @@ class FrostedAnalysisView(context: Context) : TextView(context) {
     private fun acceptSnapshot(value: Snapshot?) {
         if (!snapshotState.consume()) return
         snapshot = value
-        value?.let {
-            val position = IntArray(2).also { getLocationOnScreen(it) }
-            val rootPosition = IntArray(2).also { attachedRoot?.getLocationOnScreen(it) }
-            val left = (rootPosition[0] - position[0]).toFloat()
-            val top = (rootPosition[1] - position[1]).toFloat()
-            // Freeze sampling coordinates too: scrolling/height animation never selects new pixels.
-            snapshotBounds.set(left, top, left + it.rootWidth, top + it.rootHeight)
-        }
         invalidate()
     }
 

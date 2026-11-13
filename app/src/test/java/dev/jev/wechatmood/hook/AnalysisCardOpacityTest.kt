@@ -21,7 +21,7 @@ class AnalysisCardOpacityTest {
             .substringBefore("private fun acceptSnapshot(")
         val backdrop = draw.substringAfter("if (AnalysisCardBackdrop.drawsBackdrop(").substringBefore("val (top, bottom)")
         assertTrue(backdrop.contains("canvas.drawBitmap("))
-        assertTrue(backdrop.contains("canvas.drawColor("))
+        assertFalse(draw.contains("drawColor("))
         assertTrue(draw.indexOf("canvas.drawRoundRect(") > draw.indexOf("val (top, bottom)"))
     }
 
@@ -61,13 +61,16 @@ class AnalysisCardOpacityTest {
         assertTrue(callback.contains("BubbleDecorator.updateOpacity("))
         val preview = source("hook/BubbleDecorator").substringAfter("fun updateOpacity(opacity: Int,")
             .substringBefore("fun prepareForBind(")
-        assertTrue(preview.contains("cards.values.forEach { it.view.updateOpacity(opacity, palette) }"))
+        assertTrue(preview.contains("cards.values.forEach {"))
+        assertTrue(preview.contains("it.view.updateOpacity(opacity, palette)"))
+        assertTrue(preview.contains("it.view.invalidate()"))
         val update = source("hook/FrostedAnalysisView").substringAfter("fun updateOpacity(opacity: Int,")
             .substringBefore("private fun updateTextPalette()")
         assertTrue(update.contains("surface.updateOpacity(opacity)"))
         assertTrue(update.contains("surface.updatePalette(palette)"))
         assertTrue(update.contains("if (opacityChanged || paletteChanged) invalidate()"))
-        assertTrue(callback.contains("session.current?.cardPalette ?: CardPalette.DEFAULT"))
+        assertTrue(callback.contains("val settings = analysisSettings()"))
+        assertTrue(callback.contains("settings?.cardPalette ?: CardPalette.DEFAULT"))
         for (block in listOf(preview, update, callback)) {
             for (forbidden in listOf("refreshBackdrop(", "snapshotState.", "request(this)", ".render(", "MessageSniffer.refresh(", "requestLayout()")) {
                 assertFalse("Preview must not invoke $forbidden", block.contains(forbidden))

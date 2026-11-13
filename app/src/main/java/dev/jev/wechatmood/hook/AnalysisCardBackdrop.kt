@@ -2,6 +2,7 @@ package dev.jev.wechatmood.hook
 
 import dev.jev.wechatmood.core.CardOpacity
 import dev.jev.wechatmood.core.CardPalette
+import dev.jev.wechatmood.core.RuntimeSettings
 
 /** Android-free surface and snapshot policy, shared by the host renderer and offline tests. */
 internal object AnalysisCardBackdrop {
@@ -12,10 +13,9 @@ internal object AnalysisCardBackdrop {
     const val DOWNSAMPLE = 12
     const val MAX_WIDTH = 160
     const val MAX_HEIGHT = 280
-    const val FALLBACK_OPACITY = 92
 
     fun colors(hasSnapshot: Boolean, opacity: Int = CardOpacity.DEFAULT, dark: Boolean = true): Pair<Int, Int> {
-        val alpha = CardOpacity.alpha(if (hasSnapshot) opacity else FALLBACK_OPACITY)
+        val alpha = CardOpacity.alpha(if (hasSnapshot) opacity else CardOpacity.MAX)
         val top = if (dark) 0x2B2D34 else 0xEEF1F5
         val bottom = if (dark) 0x202229 else 0xE3E7ED
         return ((alpha shl 24) or top) to ((alpha shl 24) or bottom)
@@ -23,6 +23,15 @@ internal object AnalysisCardBackdrop {
 
     fun drawsBackdrop(hasSnapshot: Boolean, opacity: Int): Boolean =
         hasSnapshot && CardOpacity.normalize(opacity) < CardOpacity.MAX
+
+    data class CenterCrop(val scale: Float, val translateX: Float, val translateY: Float)
+
+    /** One scale for both axes fills the target, clipping excess source pixels equally on each side. */
+    fun centerCrop(sourceWidth: Int, sourceHeight: Int, width: Float, height: Float): CenterCrop? {
+        if (sourceWidth <= 0 || sourceHeight <= 0 || width <= 0f || height <= 0f) return null
+        val scale = maxOf(width / sourceWidth, height / sourceHeight)
+        return CenterCrop(scale, (width - sourceWidth * scale) / 2f, (height - sourceHeight * scale) / 2f)
+    }
 
     /** Two horizontal/vertical box-blur rounds on an already downsampled ARGB image. */
     fun soften(pixels: IntArray, width: Int, height: Int) {
@@ -57,6 +66,13 @@ internal class AnalysisCardSurfaceState {
         private set
     var palette = CardPalette.DEFAULT
         private set
+
+    /** A single shared snapshot wins over per-view state; missing settings preserve the fallback. */
+    fun readSettings(current: RuntimeSettings?): Boolean {
+        if (current == null) return false
+        updateOpacity(current.cardOpacity)
+        return updatePalette(current.cardPalette)
+    }
 
     fun updateOpacity(value: Int): Boolean {
         val next = CardOpacity.normalize(value)
